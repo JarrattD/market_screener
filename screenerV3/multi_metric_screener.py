@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
+import pandas as pd
 from .sheet import Sheet
 from .utilities import Handler
-import pandas as pd
 from time import sleep
 import aiohttp
 import os
@@ -9,51 +9,23 @@ import os
 load_dotenv()
 
 
-class AlphaModule:
-    def __init__(self, ticker_path: str, sheet_path:str = "./service_account.json", sheet_name: str = "Screener") -> None:
+class MultiMetricScreener:
+    def __init__(self, ticker_path: str, sheet_path:str = "./service_account.json", sheet_name: str = "V2 Screener") -> None:
         self.sheet_client = Sheet(sheet_path= sheet_path, file_name=sheet_name)
         self.handler = Handler()
-        self.tickers = self.handler.process_tickers(self.sheet_client,ticker_path)
+        self.tickers = self.handler.process_tickers(self.sheet_client, ticker_path)
         self.profile_fstr_arr = self.__format_request_str(1000)
         self.hist_fstr_arr = self.__format_request_str(300)
         self.key = os.environ['FMP_KEY']
         self.results = {}
         self.floats = None
- 
+           
     def __get_ticker_count(self) -> int:
         num = 0
         for k, v in self.tickers.items():
             num += len(v)
         return num
- 
-    def __calculate_packback_rating(self, debug: bool = False) -> None:
-        """
-        Calculates the payback rating for the screening results.
-
-        Returns:
-        - `None`
-        """
-        negative_payback_rating = []
-        for k, v in self.results.items():
-            for k, v in self.results.items():
-                cash_equivalents = v.get("Cash & Equivalents", 0)
-                earnings_average = v.get("5Y average", 0)
-                market_cap = v.get("Market Capitalization", 0)
-                if cash_equivalents > market_cap:
-                    v["Payback Rating"] = 0.5
-                elif market_cap <= (cash_equivalents + earnings_average):
-                    v["Payback Rating"] = 1
-                elif market_cap <= (cash_equivalents + (earnings_average * 2)):
-                    v["Payback Rating"] = 2
-                elif market_cap <= (cash_equivalents + (earnings_average * 3)):
-                    v["Payback Rating"] = 3
-                else:
-                    negative_payback_rating.append(k)
-
-            for i in negative_payback_rating:
-                self.results.pop(i)
-        print(f"{len(negative_payback_rating)} tickers removed for negative payback rating.") if debug else None
-
+    
     def __format_request_str(self, limit:int=300) -> str:
         """
         Formats the tickers into a single request string, limited by the specified number.
@@ -76,11 +48,6 @@ class AlphaModule:
         
         return request_strings
     
-    def __check_reqs(self, requests_sent:int) -> None:
-        if requests_sent % 299 == 0:
-            print("Sleeping for 55 seconds to avoid hitting API limit.")
-            sleep(55)
-    
     def __find_float_from_ticker(self, ticker) -> int:
         """
         Finds the float (outstanding shares) for a given ticker.
@@ -97,33 +64,65 @@ class AlphaModule:
         
         return 0 # if ticker can't be found, return 0
     
+    def __check_reqs(self, requests_sent:int) -> None:
+        if requests_sent % 299 == 0:
+            print("Sleeping for 55 seconds to avoid hitting API limit.")
+            sleep(55)
+    
+    def __clean_results(self, d:dict):
+        ret = {}
+        rem = 0
+        for k, v in d.items():
+            try:
+                if v["Net Debt"] > 0:
+                    rem +=1
+                    continue # screen out stocks with net debt
+                elif v["isAdded"]:
+                    ret[k] = v
+            except:
+                rem+=1
+                continue 
+        
+        for k, v in ret.items():
+            try:
+                if v["EV/aFCF"] == "N/A":
+                    v["EV/aFCF"] = 1
+            except:
+                continue
+        
+        print(f"{rem}/{len(d.keys())} stocks removed during cleaning.")
+        return ret
+    
     def __sort_results(self) -> None:
         # sort first on NCAV (lowest -> highest)
         # second on upside (highest -> lowest)
-        self.results = dict(sorted(self.results.items(), key=lambda x: (x[1]["NCAV Ratio"], x[1]["FV Upside Metric"])))
-    
+        self.results = dict(sorted(self.results.items(), key=lambda x: (x[1]["P/TBV Ratio"], x[1]["FV Upside Metric"])))
+       
     async def run_async(self, debug:bool=False) -> dict:
         stk_res = {}
         blacklist = ["CN", "HK"]
         issues = []
-        requests_sent = 0
+        requests_sent = 2
         starting_stocks = self.__get_ticker_count()
+        self.floats = await self.handler.get_floats()
+        requests_sent +=1
         print(f"Screening {starting_stocks} stocks...")
-        async with aiohttp.ClientSession() as session: 
+        async with aiohttp.ClientSession() as session:
             for string in self.profile_fstr_arr:
                 res = await self.handler.get_profile(session, string)
                 requests_sent += 1
                 if res is None:
                     continue
                 for profile in res:
-                    if int(profile['mktCap']) <= 0:
-                        issues.append(profile['symbol'])
-                        continue
-                    if profile['country'] in blacklist:
-                        issues.append(profile['symbol'])
-                        continue
-                    
                     try:
+                        if int(profile['mktCap']) <= 0:
+                            issues.append(profile['symbol'])
+                            continue
+                        if profile['country'] in blacklist:
+                            issues.append(profile['symbol'])
+                            continue
+                    
+                    
                         if profile['industry'][:5] == "Banks" or profile['industry'][:9] == "Insurance" or profile["industry"][:9] == "Financial" or profile['industry'][:10] == "Investment" or profile['industry'] == "Asset Management":
                             issues.append(profile['symbol'])
                             continue
@@ -138,65 +137,29 @@ class AlphaModule:
                         "Market Cap": profile['mktCap'],
                         "HQ Location": profile["country"],
                         "Exchange Location": profile["exchange"],
-                        "Industry": profile["industry"],
-                        "Has Dividends or Buybacks":div 
+                        "Industry": profile["industry"]
                     }
 
-            # get all cashflow
+            # get all balance sheet
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase I complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             issues = []
             for k, v in stk_res.items():
                 self.__check_reqs(requests_sent)
-                cf = await self.handler.get_cashflow(session, k)
-                requests_sent += 1
-                try:
-                    if v['Has Dividends or Buybacks'] < 1:
-                        buyback = sum([i["commonStockRepurchased"]
-                                      for i in cf])
-                        if buyback < 0:
-                            v['Has Dividends or Buybacks'] = 'buyback'
-                    five_year_fcf_average = sum(
-                        [i['freeCashFlow'] for i in cf])/5
-                    average_yield = round(
-                        (five_year_fcf_average/v['Market Cap'])*100, 2)
-                    if average_yield < 10:
-                        issues.append(k)
-                        continue
-                    v['5Y average yield > 10%'] = average_yield
-                    v['5Y average'] = five_year_fcf_average
-                    v["Cash & Equivalents"]= cf[0]["cashAtEndOfPeriod"]
-                    if v['Has Dividends or Buybacks'] == 0:
-                        issues.append(k)
-                        continue
-                    v['fcfSum'] = [i['freeCashFlow'] for i in cf]
-                except Exception as ex:
-                    issues.append(k)
-                    print(f"removing for: {ex}") if debug else None
-                    continue
-            for i in issues:
-                stk_res.pop(i)
-            
-            starting_stocks = starting_stocks-len(issues)
-            print(f"Phase II complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
-            issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
                 bs = await self.handler.get_balance_sheet(session, k)
                 requests_sent += 1
-                try:
-                    net_debt = int(bs[0]["netDebt"])
-                    if net_debt > 0:
-                        issues.append(k)
-                        continue
+                try: 
                     current_assets = int(bs[0]["totalCurrentAssets"])
                     total_liabilities = int(bs[0]["totalLiabilities"])
                     ncav = current_assets - total_liabilities
-                    if ncav < 0:
-                        issues.append(k)
-                        continue
-                    v['NCAV'] = ncav
-                    v['NCAV Ratio'] = round(v['Market Cap']/ncav, 1)
+                    ratio = round(v["Market Cap"] / ncav, 1)
+                    net_debt = int(bs[0]["netDebt"])
+                    v["Net Debt"] = net_debt
+                    v["NCAV Ratio"] = 1
+                    if ratio > 0 and ratio < 2.5:
+                        v["isAdded"] = True
+                        v["NCAV Ratio"] = ratio
+
                 except:
                     issues.append(k)
                     continue
@@ -205,8 +168,59 @@ class AlphaModule:
                 stk_res.pop(i)
             
             starting_stocks = starting_stocks-len(issues)
+            print(f"Phase II complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
+            issues = []
+            for k, v in stk_res.items():
+                self.__check_reqs(requests_sent)
+                km = await self.handler.get_key_metrics(session, k)
+                requests_sent += 1
+                self.__check_reqs(requests_sent)
+                cf = await self.handler.get_cashflow(session, k)
+                requests_sent +=1
+                try:
+                    free_float = self.__find_float_from_ticker(k)
+                    y_0_ttm = km[0]['freeCashFlowPerShareTTM'] * free_float
+                    rest = [i['freeCashFlow'] for i in cf]
+                    total = y_0_ttm + sum(rest)
+                    five_year_fcf_average = total / 5 
+                    pfcfRatio = v["Market Cap"]/five_year_fcf_average
+                    v['5Y average'] = five_year_fcf_average
+                    v["Cash & Equivalents"]= cf[0]["cashAtEndOfPeriod"]
+                    
+                    v["P/aFCF Ratio"] = round(pfcfRatio, 1)
+                    if pfcfRatio > 0 and pfcfRatio < 10:
+                        v["isAdded"] = True
+                    
+                    negCashflow = 0
+                    for i in rest:
+                        if i < 0:
+                            negCashflow += 1
+                    if negCashflow > 2:
+                        issues.append(k)
+                        continue
+                    ev = km[0]["enterpriseValueTTM"]
+                    v["EV"] = round(ev)
+                    evFCF = ev/five_year_fcf_average
+                    v["EV/aFCF"] = 100
+                    if evFCF > 1 and evFCF < 5:
+                        v["isAdded"] = True
+                        v["EV/aFCF"] = round(evFCF, 1)
+                    
+                    pTBV = v["Market Cap"]/km[0]['tangibleAssetValueTTM']
+                    v["P/TBV Ratio"] = round(pTBV)
+                    
+                    if pTBV > 0 and pTBV < 1:
+                        v["isAdded"] = True
+                    
+                except Exception as e:
+                    issues.append(k)
+                    continue
+        
+            for i in issues:
+                stk_res.pop(i)
+            
+            starting_stocks = starting_stocks-len(issues)
             print(f"Phase III complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
-
             issues = []
             for k, v in stk_res.items():
                 self.__check_reqs(requests_sent)
@@ -224,9 +238,9 @@ class AlphaModule:
             
             for i in issues:
                 stk_res.pop(i)
+            
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase IV complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
-
             issues = []
             for k, v in stk_res.items():
                 try:
@@ -236,42 +250,15 @@ class AlphaModule:
                 except:
                     issues.append(k)
             
+            starting_stocks = starting_stocks-len(issues)
+            print(f"Phase IV complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             for i in issues:
                 stk_res.pop(i)
             
-            starting_stocks = starting_stocks-len(issues)
-            print(f"Phase V complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
-            self.__check_reqs(requests_sent)
-            self.floats = await self.handler.get_floats()
-            requests_sent +=1
-
-            for k, v in stk_res.items():
-                try:
-                    self.__check_reqs(requests_sent)
-                    key_metrics_ttm = await self.handler.get_key_metrics(session, k)
-                    requests_sent += 1
-                    free_float = self.__find_float_from_ticker(k)
-                    y_0_ttm = key_metrics_ttm[0]['freeCashFlowPerShareTTM'] * free_float
-                    total = y_0_ttm + sum(v['fcfSum'])
-                    five_year_fcf_average = total / 5 
-                    v['EV/aFCF'] = round(key_metrics_ttm[0]['enterpriseValueTTM']/five_year_fcf_average)
-
-                except:
-                    v['EV/aFCF'] = 100
-
-        print(f"{requests_sent} requests sent") if debug else None
-        self.results = stk_res
-        self.__calculate_packback_rating(debug)
-        self.__sort_results()
-        for k, v in self.results.items():
-            v.pop('fcfSum', None)
-        return self.results
-    
-    def update_google_sheet(self, debug:bool=False) -> None:
-        self.sheet_client.create_alpha_module_tab()
-        self.sheet_client.add_alpha_row_data(self.results)
-        print("Google Sheet updated.") if debug else None
-    
+            self.results = self.__clean_results(stk_res)
+            self.__sort_results()
+            return stk_res
+        
     def create_xlsx(self, file_path:str) -> None:
         """
         Creates an Excel file with the screening results.
@@ -288,3 +275,9 @@ class AlphaModule:
             df = pd.DataFrame.from_dict(self.results, orient='index')
             df.to_excel(file_path)
             print(f"File saved to {file_path}")
+    
+    def update_google_sheet(self, debug:bool=False) -> None:
+        self.sheet_client.create_beta_module_tab()
+        self.sheet_client.add_beta_row_data(self.results)
+        if debug:
+            print("Google Sheet updated.")
