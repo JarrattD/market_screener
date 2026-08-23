@@ -4,6 +4,9 @@
 name: Cloud Screener
 
 on:
+  schedule:
+    - cron: '0 3 * * 6'
+      timezone: "Europe/London"
   issues:
       types:
         - opened
