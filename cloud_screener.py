@@ -1,30 +1,43 @@
 import asyncio
-from screenerV3.payback_screener import PaybackScreener
-from screenerV3.multi_metric_screener import MultiMetricScreener
-from time import sleep
 from pathlib import Path
-from screenerV3.completion import write_verified, publish_manifest, london_batch_date
+from screenerV3.completion import write_verified, resume_verified, publish_manifest, london_batch_date
 
 service_account = './screener/service_account.json'
 v1_path = './data/cleaned_tickers.json'
 v2_path = './data/non_banking_tickers.json'
-test_path = './data/test_data.json'
 
-async def main() -> None:
-  Path('research_completion.json').unlink(missing_ok=True)
-  batch_date = london_batch_date()
-  receipts = []
-  a = PaybackScreener(v1_path, sheet_path= service_account)
-  await a.run_async(debug= False)
-  receipts.append(write_verified(a.sheet_client, 'alpha', a.results, batch_date))
-  print("Sleeping for 1 minute.")
-  sleep(60)
-  b = MultiMetricScreener(v2_path, sheet_path= service_account)
-  await b.run_async(debug= False)
-  receipts.append(write_verified(b.sheet_client, 'beta', b.results, batch_date))
-  publish_manifest(receipts, batch_date)
+async def main(sheet_factory=None, screener_factories=None, batch_date=None,
+               manifest_path='research_completion.json', pause=asyncio.sleep) -> None:
+    if sheet_factory is None or screener_factories is None:
+        from screenerV3.sheet import Sheet
+        from screenerV3.payback_screener import PaybackScreener
+        from screenerV3.multi_metric_screener import MultiMetricScreener
+        sheet_factory = lambda name: Sheet(sheet_path=service_account, file_name=name)
+        screener_factories = {
+            'alpha': lambda: PaybackScreener(v1_path, sheet_path=service_account),
+            'beta': lambda: MultiMetricScreener(v2_path, sheet_path=service_account),
+        }
+    Path(manifest_path).unlink(missing_ok=True)
+    batch_date = batch_date or london_batch_date()
+    receipts = []
+    sheets = []
+    for kind, name in [('alpha', 'Screener'), ('beta', 'V2 Screener')]:
+        sheet = sheet_factory(name)
+        sheets.append((kind, sheet))
+        receipt = resume_verified(sheet, kind, batch_date)
+        if receipt is None:
+            # Crucially, constructor/Handler.process_tickers runs only for unfinished output.
+            screener = screener_factories[kind]()
+            if screener.sheet_client.file.id != sheet.file.id:
+                raise ValueError('Screener destination changed')
+            await screener.run_async(debug=False)
+            receipt = write_verified(sheet, kind, screener.results, batch_date)
+        receipts.append(receipt)
+        if kind == 'alpha':
+            await pause(60)
+    # Recheck both frozen private checkpoints immediately before the public success marker.
+    receipts = [resume_verified(sheet, kind, batch_date) for kind, sheet in sheets]
+    publish_manifest(receipts, batch_date, manifest_path)
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
-
