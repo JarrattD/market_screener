@@ -17,7 +17,22 @@ permissions:
   contents: read
 
 jobs:
+  test-completion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+
   run-screener:
+    # PRs must never run production screeners or write to Google Sheets.
+    if: github.event_name != 'pull_request'
+    needs: test-completion
+    concurrency:
+      group: production-screener
+      cancel-in-progress: false
     runs-on: ubuntu-latest
 
     steps:
@@ -49,3 +64,12 @@ jobs:
       - name: Run Cloud Screener
         run: |
           python cloud_screener.py
+
+
+      - name: Preserve verified research handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-completion-${{ github.run_id }}-${{ github.run_attempt }}
+          path: research_completion.json
+          if-no-files-found: error
+          retention-days: 90
