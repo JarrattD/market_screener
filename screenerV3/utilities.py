@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from urllib.parse import quote
 from .negative_ev_provider import (FMPClient, FMPError, FMPAuthenticationError, Issue,
-    normalize_profile, reconcile_cap_units, boolean, latest_statement)
+    normalize_profile, reconcile_cap_units, boolean)
 from .data_freshness import DataFreshnessError, require_quote_current, require_statement_current
 from .quote_refresh import refresh_quotes
 from .legacy_statement_quality import resolve, annual_history
@@ -91,6 +91,8 @@ class Handler:
         refreshed, issues = await refresh_quotes(self._client, profiles,
             normalize_profile=normalize_profile, reconcile_cap_units=reconcile_cap_units,
             issue_type=Issue, error_type=FMPError, auth_error_type=FMPAuthenticationError)
+        if self._client.health.get("systemic_failure"):
+            raise FMPError("Current quote acquisition failed; refusing an empty completed screen")
         for issue in issues:
             self._record(issue.symbol, "unresolved", issue.reason, "FMP quote")
         valid = []

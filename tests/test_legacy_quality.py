@@ -44,6 +44,18 @@ class LegacyQualityTests(unittest.IsolatedAsyncioTestCase):
         with patch('screenerV3.utilities.refresh_quotes',refresh):self.assertEqual(await h.get_profile(None,'A'),[])
         self.assertTrue(any(r[1]=='unresolved' for r in h.quality_audit))
 
+    async def test_systemic_quote_failure_cannot_publish_empty_completion(self):
+        from screenerV3.negative_ev_provider import FMPError
+        h=self.handler()
+        async def read(session,path,params=None):
+            return [dict(symbol='A',isActivelyTrading=True,isEtf=False,isFund=False,currency='GBP',mktCap=50)]
+        async def refresh(client,profiles,**kwargs):
+            client.health['systemic_failure']=True
+            return profiles,[]
+        h._read=read
+        with patch('screenerV3.utilities.refresh_quotes',refresh):
+            with self.assertRaises(FMPError):await h.get_profile(None,'A')
+
     async def test_financial_freshness_and_currency(self):
         h=self.handler();h._profiles={'A':{'cap_currency':'GBP'}}
         old=dict(symbol='A',date='2019-12-31',period='FY',reportedCurrency='GBP')
