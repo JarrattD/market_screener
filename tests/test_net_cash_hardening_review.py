@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 """Independent offline regressions for revision, quota, and publication safety."""
 import contextlib
 import copy
@@ -29,6 +30,10 @@ def annual(year=2025, **changes):
                freeCashFlow=10)
     row.update(changes)
     return row
+
+
+async def verified_quote_fixture(client, profiles, **kwargs):
+    return profiles, []
 
 
 class RevisionHardeningReviewTests(unittest.TestCase):
@@ -172,12 +177,12 @@ class FatalQuotaHardeningReviewTests(unittest.IsolatedAsyncioTestCase):
             return [dict(symbol=symbol) for symbol in ("A_GOOD", "Z_QUOTA")]
         async def profiles(universe):
             return {row["symbol"]:dict(profile(row["symbol"]), cap_amount=50,
-                        cap_currency="GBP", security_eligible=True,
+                        as_of=datetime.now(timezone.utc).isoformat(),cap_currency="GBP", security_eligible=True,
                         security_identity="SYMBOL:" + row["symbol"]) for row in universe}, []
         async def fx(currencies):
             return {c:FXRate(c, 1, "2026-10-19", "2026-10-19", "synthetic") for c in currencies}, []
         client.fetch_universe, client.fetch_profiles, client.fetch_fx = universe, profiles, fx
-        with patch.object(net_cash_screen, "publish") as publish:
+        with patch.object(net_cash_screen, "refresh_quotes", verified_quote_fixture), patch.object(net_cash_screen, "publish") as publish:
             with contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaises(FMPError):
                     await net_cash_screen.screen(client, object(), Criteria(cheapness_any=True))

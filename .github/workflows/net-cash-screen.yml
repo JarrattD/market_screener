@@ -4,9 +4,6 @@ on:
     - cron: '0 3 * * 6'
       timezone: Europe/London
   workflow_dispatch:
-  push:
-    # One-off authorised full test. Remove after this test is launched.
-    branches: [net-cash-live-test-2026-10-19]
   pull_request:
     branches: [main]
     paths:

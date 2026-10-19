@@ -379,6 +379,8 @@ def latest_statement(rows: list[dict[str, Any]], symbol: str,
                  str(row.get("startDate") or row.get("periodStartDate") or "")[:10]) for row in records}
     if any(revision(row) is None for row in newest) and len(signatures(newest)) > 1:
         return None
+    if any(revision(row) is not None and revision(row) > datetime.now(UTC) + timedelta(hours=1) for row in newest):
+        return None
     unknown = datetime.min.replace(tzinfo=UTC)
     latest_revision = max((revision(row) or unknown) for row in newest)
     newest = [row for row in newest if (revision(row) or unknown) == latest_revision]
@@ -397,6 +399,9 @@ def five_year_cashflows(rows: list[dict[str, Any]], symbol: str
     """
     by_year: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
+        rev = _timestamp(row.get("acceptedDate") or row.get("filingDate") or row.get("fillingDate"))
+        if rev is not None and rev > datetime.now(UTC) + timedelta(hours=1):
+            return [], "future_annual_revision"
         if latest_statement([row], symbol, annual_only=True) is None:
             continue
         period_end = date.fromisoformat(str(row["date"])[:10])

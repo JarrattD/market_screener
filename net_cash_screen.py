@@ -15,10 +15,13 @@ from zoneinfo import ZoneInfo
 
 from screenerV3.net_cash_calculations import Criteria, MissingData, evaluate, market_cap_gbp, gross_margin, combined_cash, number
 from screenerV3.net_cash_output import open_destination, publish, resume_complete
+from screenerV3.net_cash_freshness import POLICY, require_statement_current, require_quote_current
+from screenerV3.quote_refresh import refresh_quotes
+from screenerV3.net_cash_data import normalize_profile, reconcile_cap_units, Issue, FMPError, FMPAuthenticationError
 
 # User-approved inclusive OR gate, separate from the master watchlist rules.
 CONFIG = {"market_cap_gbp_max": "75000000", "net_cash_strictly_positive": True,
-          "annual_gross_margin_min": "0.30", "cheapness_rule": "P/TBV<=1 OR P/5YFCF<=5 OR EV/5YFCF<=5"}
+          "data_quality_policy": POLICY, "annual_gross_margin_min": "0.30", "cheapness_rule": "P/TBV<=1 OR P/5YFCF<=5 OR EV/5YFCF<=5"}
 
 HEADERS = ["Ticker", "Company", "Country", "Exchange", "Market cap GBP", "Market cap currency",
            "Market cap original", "Cash + short-term investments", "Total debt", "Net cash",
@@ -58,6 +61,10 @@ async def screen(client, sheet, rule):
     print("Loading global provider universe and profiles", flush=True)
     universe = await client.fetch_universe()
     profiles, issues = await client.fetch_profiles(universe)
+    profiles, quote_issues = await refresh_quotes(client, profiles, normalize_profile=normalize_profile,
+        reconcile_cap_units=reconcile_cap_units, issue_type=Issue, error_type=FMPError,
+        auth_error_type=FMPAuthenticationError)
+    issues.extend(quote_issues)
     rates, fx_issues = await client.fetch_fx({p.get("cap_currency") for p in profiles.values() if p.get("cap_currency")})
     issues.extend(fx_issues)
     fx = {key: value.rate_to_gbp for key, value in rates.items()}
@@ -73,6 +80,7 @@ async def screen(client, sheet, rule):
             audit[symbol] = audit_row(symbol, "excluded_security" if p.get("security_eligible") is False else "unresolved", p.get("security_reason", "Security eligibility unverified"))
             continue
         try:
+            require_quote_current(p)
             cap = market_cap_gbp(p.get("cap_amount"), p.get("cap_currency"), fx)
             if cap > rule.cap_gbp:
                 audit[symbol] = audit_row(symbol, "rejected", "Market cap above £75m")
@@ -83,8 +91,8 @@ async def screen(client, sheet, rule):
         candidates.append(symbol)
     print("Reading annual and latest balance-sheet financials", flush=True)
     financials, financial_issues = await client.fetch_financials(candidates, include_cashflow=True,
-        income_gate=lambda income: gross_margin(income) >= rule.minimum_gross_margin,
-        balance_gate=lambda balance: combined_cash(balance) - number(balance.get("totalDebt"), "total debt") > 0)
+        income_gate=lambda income: gross_margin(require_statement_current(income, "Annual income")) >= rule.minimum_gross_margin,
+        balance_gate=lambda balance: combined_cash(require_statement_current(balance, "Latest balance sheet")) - number(balance.get("totalDebt"), "total debt") > 0)
     issues.extend(financial_issues)
     reporting_currencies = {f.balance.get("reportedCurrency") for f in financials.values() if f.balance}
     more_rates, more_issues = await client.fetch_fx(reporting_currencies - set(rates))
@@ -99,6 +107,7 @@ async def screen(client, sheet, rule):
             audit[symbol] = audit_row(symbol, "unresolved", "Required annual income unavailable")
             continue
         try:
+            require_statement_current(f.income, "Annual income")
             if gross_margin(f.income) < rule.minimum_gross_margin:
                 audit[symbol] = audit_row(symbol, "rejected", "gross margin below limit")
                 continue
@@ -109,6 +118,7 @@ async def screen(client, sheet, rule):
             audit[symbol] = audit_row(symbol, "unresolved", "Required latest balance sheet unavailable")
             continue
         try:
+            require_statement_current(f.balance, "Latest balance sheet")
             result = evaluate(p["cap_amount"], p["cap_currency"], f.balance, f.income, fx, rule, cashflows=f.cashflows if f.cashflow_years_complete else None)
         except MissingData as exc:
             audit[symbol] = audit_row(symbol, "unresolved", str(exc))

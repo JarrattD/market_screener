@@ -1,8 +1,13 @@
+from datetime import datetime, timezone
 """Request-count benchmarks are synthetic, never claimed as measured live savings."""
 import unittest
 from decimal import Decimal
 from screenerV3.net_cash_calculations import combined_cash, number, gross_margin, evaluate, Criteria
 from screenerV3.net_cash_data import FMPClient
+
+
+async def verified_quote_fixture(client, profiles, **kwargs):
+    return profiles, []
 
 
 class OrderedGateTests(unittest.IsolatedAsyncioTestCase):
@@ -81,7 +86,7 @@ class EndToEndOrderedGateTests(unittest.IsolatedAsyncioTestCase):
         async def universe(): return [dict(symbol='ONLY')]
         async def profiles(universe):
             return {'ONLY':dict(symbol='ONLY',companyName='Synthetic',country='CN',cap_amount=50,
-                                cap_currency='GBP',security_eligible=True,security_identity='SYMBOL:ONLY')},[]
+                                as_of=datetime.now(timezone.utc).isoformat(),cap_currency='GBP',security_eligible=True,security_identity='SYMBOL:ONLY')},[]
         async def fx(currencies):
             return {c:FXRate(c,1,'2026-10-19','2026-10-19','synthetic') for c in currencies if c=='GBP'},[
                 Issue(c,'fx','unavailable') for c in currencies if c!='GBP']
@@ -97,7 +102,7 @@ class EndToEndOrderedGateTests(unittest.IsolatedAsyncioTestCase):
                         for y in range(2020,2026)] if cashflows else []
             raise AssertionError(path)
         client.fetch_universe=universe;client.fetch_profiles=profiles;client.fetch_fx=fx;client._request=request
-        with patch.object(net_cash_screen,'publish',return_value={'verified':True}) as publish:
+        with patch.object(net_cash_screen,'refresh_quotes',verified_quote_fixture), patch.object(net_cash_screen,'publish',return_value={'verified':True}) as publish:
             with contextlib.redirect_stdout(io.StringIO()):
                 try: await net_cash_screen.screen(client,object(),Criteria(cheapness_any=True))
                 except ValueError as exc: return publish,None,exc

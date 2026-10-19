@@ -57,8 +57,7 @@ periods, inputs, calculations and qualifications accompany qualifying rows.
 sharing the `production-screener` concurrency lock with the originals so that
 their common FMP budget is not consumed simultaneously. GitHub may queue either
 workflow first. `workflow_dispatch` supports an explicit full-universe test.
-An exact-name temporary test-branch push trigger is used only for the authorised
-initial live test and is removed from main once launched.
+The one-off initial test push trigger is removed before deployment.
 Pull requests run mocked/unit tests only and cannot write to Sheets.
 
 The job reuses existing `FMP_KEY` and `SERVICE_ACCOUNT_JSON` secrets without
@@ -107,4 +106,13 @@ Correctness safeguards added after the baseline test began:
 - Preflight completed results and dated companions before changing any output. New companion tabs are sealed with verified hashes and private per-run ownership. Existing baseline receipts remain readable only after all original result, coverage and input hashes verify.
 - The initial live baseline predates these safeguards and requires separate quota, revision and completeness review before its results are accepted.
 
-Deployment scheduling check remains open: GitHub defaults to only one pending job per concurrency group even with `cancel-in-progress: false`. The shared production-screener group needs a consistently reviewed queue policy before additional production workflows are enabled. No existing workflow has been changed as part of this draft.
+Queue policy is consistently `queue: max` and `cancel-in-progress: false`. The existing workflow received the separately approved one-line scheduling correction in PR48.
+
+## Current-data validation after the baseline
+The baseline finished in 5h29m with 1,342 raw matches. Its output is retained under Provisional tabs, not accepted as current candidates: all result rows lacked quoted price dates and some latest provider statements were obsolete. No provisional row should feed research.
+
+Every active eligible listing now receives a fresh timestamped quote before the cap gate, including stocks whose former profile cap was above the limit. Missing quote data clears the old profile cap instead of falling back to it. Current quote age must be at most seven days; annual and latest balance periods must be within eighteen calendar months. These are documented data-quality grace windows, not investment filters: older/missing evidence is unresolved pending latest-filing verification. isActivelyTrading must explicitly be true; missing is unresolved and false excluded. No country or OTC blanket exclusion has been added.
+
+Shared quote refresh and freshness modules are reviewed together across the new and existing screens. The original financial thresholds and inclusive valuation OR remain unchanged. New quotes retain their actual provider timestamp, source and raw evidence. Retrieval time is not a market-price date.
+
+The temporary test-branch push event has been removed. Production remains Saturday 03:00 Europe/London with workflow_dispatch and queue:max / cancel-in-progress:false. A corrected full live run and final output verification remain required before claiming end-to-end completion.

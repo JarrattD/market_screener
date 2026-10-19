@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 """Independent, offline review regressions for the separate screen only."""
 import contextlib
 import copy
@@ -29,6 +30,10 @@ def income(**changes):
     result = dict(date="2025-12-31", period="FY", revenue=100, grossProfit=30)
     result.update(changes)
     return result
+
+
+async def verified_quote_fixture(client, profiles, **kwargs):
+    return profiles, []
 
 
 class IndependentArithmeticTests(unittest.TestCase):
@@ -133,7 +138,7 @@ class FixtureClient:
 
     async def fetch_profiles(self, universe):
         profiles = {name:dict(symbol=name, security_eligible=True, cap_amount=50,
-                             cap_currency="GBP", country="CN", companyName=name,
+                             as_of=datetime.now(timezone.utc).isoformat(), cap_currency="GBP", country="CN", companyName=name,
                              security_identity="SYMBOL:"+name) for name in self.names}
         profiles["SYNTH_BIG"]["cap_amount"] = 75000001
         profiles["SYNTH_NO_CAP"]["cap_amount"] = None
@@ -169,7 +174,7 @@ class WholeScreenReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_full_fixture_or_gate_accounting_aliases_and_private_stdout(self):
         client = FixtureClient()
         output = io.StringIO()
-        with patch.object(net_cash_screen, "publish", return_value={"verified":True}) as publish:
+        with patch.object(net_cash_screen, "refresh_quotes", verified_quote_fixture), patch.object(net_cash_screen, "publish", return_value={"verified":True}) as publish:
             with contextlib.redirect_stdout(output):
                 receipt = await net_cash_screen.screen(client, object(), Criteria(cheapness_any=True))
         self.assertTrue(receipt["verified"])
