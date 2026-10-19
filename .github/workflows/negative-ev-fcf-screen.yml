@@ -1,0 +1,65 @@
+name: Negative EV and Positive Five-Year FCF Screen
+on:
+  schedule:
+    - cron: '0 3 * * 6'
+      timezone: Europe/London
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'negative_ev_fcf_screen.py'
+      - 'screenerV3/negative_ev*'
+      - 'tests/test_negative_ev*'
+      - '.github/workflows/negative-ev-fcf-screen.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - run: python -m unittest discover -s tests -p 'test_negative_ev*.py' -v
+      - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+  screen:
+    if: github.event_name != 'pull_request' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: production-screener
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - name: Run the separate negative-EV screen
+        env:
+          FMP_KEY: ${{ secrets.FMP_KEY }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          NEGATIVE_EV_SHEET_ID: ${{ secrets.NEGATIVE_EV_SHEET_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$NEGATIVE_EV_SHEET_ID" || { echo "Private destination is not configured"; exit 1; }
+          umask 077
+          mkdir -p private_negative_ev_run
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          value = json.loads(os.environ['SERVICE_ACCOUNT_JSON'])
+          Path('private_negative_ev_run/service_account.json').write_text(json.dumps(value))
+          PY
+          python negative_ev_fcf_screen.py --service-account private_negative_ev_run/service_account.json --spreadsheet-id "$NEGATIVE_EV_SHEET_ID"
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f private_negative_ev_run/service_account.json
+# No push/issue trigger and no public candidate artifacts. PRs execute only the
+# offline test job. Production requires the separately authorized Sheet grant,
+# private destination configuration, and approved dispatch or main deployment.
