@@ -146,7 +146,7 @@ class FixtureClient:
         return {c: FXRate(c, 1, "2026-10-19", "2026-10-19", "synthetic")
                 for c in currencies if c}, []
 
-    async def fetch_financials(self, symbols, *, include_cashflow=False):
+    async def fetch_financials(self, symbols, *, include_cashflow=False, income_gate=None, balance_gate=None):
         self.requested = set(symbols)
         result = {}
         for name in symbols:

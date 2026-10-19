@@ -75,6 +75,21 @@ A conflicting pre-existing dated output is not overwritten automatically.
 Missing input cases remain unresolved for investigation. An API-wide failure
 must not be represented as a completed zero-result screen.
 
+## Speed without changing criteria
+
+Financial requests are ordered by the mandatory gates: annual margin first,
+then both balance frequencies, then FCF history only for net-cash survivors.
+Known failures stop early; missing data remain unresolved. Every survivor still
+gets all three cheapness route flags. This does not replace the global universe
+with a provider prefilter or reuse potentially stale financial data.
+
+The offline three-stock benchmark (one margin failure, one net-cash failure,
+one survivor) uses 8 financial requests instead of 12 with the same result.
+This is a synthetic request-count example, not a measured live speedup. Actual
+HTTP, retry and bulk request counts and data-stage elapsed time are recorded
+privately in completed coverage output for comparison. No parallel live tests
+should compete for the same API budget.
+
 ## Tests
 
 `python -m unittest discover -s tests -p 'test_net_cash*.py' -v`

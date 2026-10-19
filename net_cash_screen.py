@@ -10,9 +10,10 @@ from decimal import Decimal
 import json
 from pathlib import Path
 import sys
+import time
 from zoneinfo import ZoneInfo
 
-from screenerV3.net_cash_calculations import Criteria, MissingData, evaluate, market_cap_gbp
+from screenerV3.net_cash_calculations import Criteria, MissingData, evaluate, market_cap_gbp, gross_margin, combined_cash, number
 from screenerV3.net_cash_output import open_destination, publish, resume_complete
 
 # User-approved inclusive OR gate, separate from the master watchlist rules.
@@ -51,6 +52,7 @@ async def run(service_account, client=None):
 
 
 async def screen(client, sheet, rule):
+    started = time.perf_counter()
     assessed_at = datetime.now(timezone.utc).isoformat()
     batch_date = datetime.now(ZoneInfo("Europe/London")).date()
     print("Loading global provider universe and profiles", flush=True)
@@ -80,7 +82,9 @@ async def screen(client, sheet, rule):
             continue
         candidates.append(symbol)
     print("Reading annual and latest balance-sheet financials", flush=True)
-    financials, financial_issues = await client.fetch_financials(candidates, include_cashflow=True)
+    financials, financial_issues = await client.fetch_financials(candidates, include_cashflow=True,
+        income_gate=lambda income: gross_margin(income) >= rule.minimum_gross_margin,
+        balance_gate=lambda balance: combined_cash(balance) - number(balance.get("totalDebt"), "total debt") > 0)
     issues.extend(financial_issues)
     reporting_currencies = {f.balance.get("reportedCurrency") for f in financials.values() if f.balance}
     more_rates, more_issues = await client.fetch_fx(reporting_currencies - set(rates))
@@ -91,8 +95,18 @@ async def screen(client, sheet, rule):
     for symbol in candidates:
         p = profiles[symbol]
         f = financials.get(symbol)
-        if f is None or not f.income or not f.balance:
-            audit[symbol] = audit_row(symbol, "unresolved", "Required annual income or latest balance sheet unavailable")
+        if f is None or not f.income:
+            audit[symbol] = audit_row(symbol, "unresolved", "Required annual income unavailable")
+            continue
+        try:
+            if gross_margin(f.income) < rule.minimum_gross_margin:
+                audit[symbol] = audit_row(symbol, "rejected", "gross margin below limit")
+                continue
+        except MissingData as exc:
+            audit[symbol] = audit_row(symbol, "unresolved", str(exc))
+            continue
+        if not f.balance:
+            audit[symbol] = audit_row(symbol, "unresolved", "Required latest balance sheet unavailable")
             continue
         try:
             result = evaluate(p["cap_amount"], p["cap_currency"], f.balance, f.income, fx, rule, cashflows=f.cashflows if f.cashflow_years_complete else None)
@@ -148,7 +162,9 @@ async def screen(client, sheet, rule):
     status = "complete_with_unresolved" if counts["unresolved"] or issues else "complete"
     coverage = {"status": status, "provider_universe": len(audit), **dict(counts), "matched_rows": len(rows)-1,
                 "assessment_utc": assessed_at, "data_issue_count": len(issues),
-                "universe_sources": client.universe_source}
+                "universe_sources": client.universe_source,
+                "data_stage_seconds": round(time.perf_counter()-started, 3),
+                "request_metrics": json.dumps(getattr(client, "metrics", {}), sort_keys=True)}
     # Keep the complete assessment and API diagnostics private, not in public logs/artifacts.
     audit_rows = [["Ticker", "Status", "Reason", "Source"]] + sorted(audit.values())
     audit_rows += [[i.symbol, "data_issue", f"{i.stage}: {i.reason}", "FMP"] for i in issues]

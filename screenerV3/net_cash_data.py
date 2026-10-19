@@ -443,6 +443,7 @@ class FMPClient:
                                       "profile_data_available": None,
                                       "financial_data_available": None,
                                       "systemic_failure": False}
+        self.metrics = {"http_requests": 0, "retry_requests": 0, "bulk_requests": 0}
         self.universe_source = ""
         self.universe_fetched_at = ""
 
@@ -472,6 +473,9 @@ class FMPClient:
                     await self.limiter.acquire()
                     if self._fatal:
                         raise self._fatal
+                    self.metrics["http_requests"] += 1
+                    self.metrics["retry_requests"] += int(attempt > 0)
+                    self.metrics["bulk_requests"] += int(csv_response)
                     async with self._session.get(BASE_URL + path, params=request_params,
                                                  allow_redirects=False) as response:
                         retry_after = response.headers.get("Retry-After")
@@ -753,7 +757,8 @@ class FMPClient:
                                  fetched_at, "FMP " + source)
         return result, issues
 
-    async def fetch_financials(self, symbols: Iterable[str], *, include_cashflow: bool = False
+    async def fetch_financials(self, symbols: Iterable[str], *, include_cashflow: bool = False,
+                               income_gate=None, balance_gate=None
                                ) -> tuple[dict[str, Financials], list[Issue]]:
         """Annual income plus newest available quarterly OR annual balance.
 
@@ -765,6 +770,7 @@ class FMPClient:
         """
         result: dict[str, Financials] = {}
         issues: list[Issue] = []
+        resolved_early_failures = set()
 
         async def statements(symbol: str, endpoint: str, period: str
                              ) -> tuple[list[dict[str, Any]] | None, str | None]:
@@ -780,17 +786,24 @@ class FMPClient:
                 return None, exc.reason
 
         async def one(symbol: str) -> None:
-            requests = [("income-statement", "annual"), ("balance-sheet-statement", "quarter"),
-                        ("balance-sheet-statement", "annual")]
-            if include_cashflow:
-                requests.append(("cash-flow-statement", "annual"))
-            responses = await asyncio.gather(*(statements(symbol, endpoint, period) for endpoint, period in requests))
-            annual_rows, income_error = responses[0]
+            annual_rows, income_error = await statements(symbol, "income-statement", "annual")
             income = latest_statement(annual_rows or [], symbol, annual_only=True)
             if income is None:
                 issues.append(Issue(symbol, "income", income_error or "missing_valid_annual_income"))
-            quarterly_rows, quarter_error = responses[1]
-            balance_rows, annual_error = responses[2]
+            if income_gate is not None:
+                try:
+                    passes_income = income is not None and income_gate(income)
+                    if income is not None and not passes_income:
+                        resolved_early_failures.add(symbol)
+                except ValueError:
+                    passes_income = False  # Unknown required data, not a failed gate.
+                if not passes_income:
+                    result[symbol] = Financials(income, None, fetched_at=utc_now())
+                    return
+            responses = await asyncio.gather(statements(symbol, "balance-sheet-statement", "quarter"),
+                                             statements(symbol, "balance-sheet-statement", "annual"))
+            quarterly_rows, quarter_error = responses[0]
+            balance_rows, annual_error = responses[1]
             balance = None
             if quarter_error or annual_error:
                 issues.append(Issue(symbol, "balance", quarter_error or annual_error or "unresolved_balance"))
@@ -798,12 +811,22 @@ class FMPClient:
                 balance = latest_statement((quarterly_rows or []) + (balance_rows or []), symbol)
                 if balance is None:
                     issues.append(Issue(symbol, "balance", "missing_valid_balance"))
+            if balance_gate is not None:
+                try:
+                    passes_balance = balance is not None and balance_gate(balance)
+                    if balance is not None and not passes_balance:
+                        resolved_early_failures.add(symbol)
+                except ValueError:
+                    passes_balance = False
+                if not passes_balance:
+                    result[symbol] = Financials(income, balance, fetched_at=utc_now())
+                    return
             cashflow = None
             cashflows = []
             cashflow_complete = False
             cashflow_reason = "not_requested"
             if include_cashflow:
-                cash_rows, cash_error = responses[3]
+                cash_rows, cash_error = await statements(symbol, "cash-flow-statement", "annual")
                 cashflow = latest_statement(cash_rows or [], symbol, annual_only=True)
                 cashflows, cashflow_reason = five_year_cashflows(cash_rows or [], symbol)
                 cashflow_complete = cashflow_reason == "complete_five_consecutive_financial_years"
@@ -821,8 +844,10 @@ class FMPClient:
         await _map_bounded(sorted(set(symbols)), one, self.concurrency)
         if result:
             self.health["financial_data_available"] = any(
-                item.income is not None and item.balance is not None for item in result.values())
+                item.income is not None and item.balance is not None for item in result.values()) or bool(resolved_early_failures)
             if not self.health["financial_data_available"]:
                 self.health["systemic_failure"] = True
                 self.diagnostics.append(Issue("", "financials", "no_candidate_has_resolved_income_and_balance"))
+        self.metrics["financial_candidates"] = len(result)
+        self.metrics["early_base_failures"] = len(resolved_early_failures)
         return result, sorted(issues, key=lambda item: (item.symbol, item.stage, item.reason))
