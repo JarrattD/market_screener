@@ -100,3 +100,11 @@ For an authorised live run only:
 These are screening leads, not investment recommendations or permission to
 trade. Report review should check restricted/customer cash, lease completeness,
 asset quality, durability, acquisition constraints and the main catch.
+
+Correctness safeguards added after the baseline test began:
+- Parse filing/revision timestamps chronologically. Conflicting same-period financial values without a reliable revision order remain unresolved; five-year history resolves all revisions together rather than letting API order select a value.
+- A run-wide authentication/quota circuit breaker aborts publication even after some successful requests. Ordinary issuer-specific missing data still remains explicitly unresolved.
+- Preflight completed results and dated companions before changing any output. New companion tabs are sealed with verified hashes and private per-run ownership. Existing baseline receipts remain readable only after all original result, coverage and input hashes verify.
+- The initial live baseline predates these safeguards and requires separate quota, revision and completeness review before its results are accepted.
+
+Deployment scheduling check remains open: GitHub defaults to only one pending job per concurrency group even with `cancel-in-progress: false`. The shared production-screener group needs a consistently reviewed queue policy before additional production workflows are enabled. No existing workflow has been changed as part of this draft.

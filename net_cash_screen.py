@@ -157,6 +157,8 @@ async def screen(client, sheet, rule):
         raise ValueError("Universe coverage accounting mismatch")
     issues.extend(client.diagnostics)
     counts = Counter(row[1] for row in audit.values())
+    if getattr(client, "_fatal", None):
+        raise client._fatal
     if not profiles or (candidates and not financials) or getattr(client, "health", {}).get("systemic_failure"):
         raise ValueError("Systemic provider failure; no complete result published")
     status = "complete_with_unresolved" if counts["unresolved"] or issues else "complete"

@@ -4,10 +4,14 @@ import hashlib
 import json
 import os
 import time
+import uuid
 
 TITLE = "Net Cash & High Margin Screener"
 PREFIX = "net-cash-screen-v1:"
 STAGING = "net-cash-staging-v1:"
+SEALED = "net-cash-sealed-v1:"
+# Different CLI processes must never share the literal owner name "local".
+RUN_OWNER = os.getenv("GITHUB_RUN_ID") or "local-" + uuid.uuid4().hex
 
 
 def stable_hash(rows):
@@ -23,6 +27,37 @@ def pad(rows, width):
     return [row + [""] * (width - len(row)) for row in rows]
 
 
+def owned(tab):
+    note = tab.get_note("A1")
+    if note == STAGING + RUN_OWNER:
+        return True
+    if note.startswith(SEALED):
+        try:
+            return json.loads(note[len(SEALED):]).get("owner") == RUN_OWNER
+        except (ValueError, TypeError):
+            return False
+    return False
+
+
+def seal(tab):
+    rows = tab.get_all_values()
+    width = max(map(len, rows)) if rows else 0
+    value = {"owner": RUN_OWNER, "content_hash": stable_hash(pad(rows, width))}
+    note = SEALED + json.dumps(value, sort_keys=True)
+    tab.update_note("A1", note)
+    if tab.get_note("A1") != note:
+        raise ValueError("Companion seal verification failed")
+
+
+def verified_seal(tab, rows, width):
+    note = tab.get_note("A1")
+    if not note.startswith(SEALED):
+        raise ValueError("Completed companion is not sealed")
+    value = json.loads(note[len(SEALED):])
+    if value.get("content_hash") != stable_hash(pad(rows, width)):
+        raise ValueError("Companion seal content differs")
+
+
 def write_matrix(sheet, title, rows, overwrite=False):
     import gspread
     rows = strings(rows)
@@ -32,13 +67,15 @@ def write_matrix(sheet, title, rows, overwrite=False):
         tab = sheet.worksheet(title)
     except gspread.WorksheetNotFound:
         tab = sheet.add_worksheet(title=title, rows=max(len(rows), 100), cols=max(width, 10))
-        tab.update_note("A1", STAGING + os.getenv("GITHUB_RUN_ID", "local"))
+        tab.update_note("A1", STAGING + RUN_OWNER)
     else:
         if not overwrite:
+            if not owned(tab):
+                raise ValueError("Existing dated output is not owned by this run")
             existing = pad(tab.get_all_values(), width)
             if existing == rows:
                 return tab
-            if tab.get_note("A1") != STAGING + os.getenv("GITHUB_RUN_ID", "local"):
+            if tab.get_note("A1") != STAGING + RUN_OWNER:
                 raise ValueError("Existing dated output differs; no automatic overwrite")
             # Only our own incomplete write may be retried. Confirmed outputs remain immutable.
         tab.resize(rows=max(len(rows), 100), cols=max(width, 10))
@@ -84,30 +121,65 @@ def resume_complete(sheet, batch_date, config):
             or receipt.get("criteria_hash") != stable_hash(config)
             or stable_hash(pad(actual, width)) != receipt.get("content_hash")):
         raise ValueError("Existing completed batch failed verification")
-    coverage = sheet.worksheet("Coverage " + title).get_all_values()
+    coverage_tab = sheet.worksheet("Coverage " + title)
+    coverage = coverage_tab.get_all_values()
     if stable_hash(pad(coverage, 2)) != receipt.get("coverage_hash"):
         raise ValueError("Existing coverage verification failed")
+    if receipt.get("seal_version") == 2:
+        verified_seal(coverage_tab, coverage, 2)
     if receipt.get("inputs_hash"):
-        inputs = sheet.worksheet("Inputs " + title).get_all_values()
+        inputs_tab = sheet.worksheet("Inputs " + title)
+        inputs = inputs_tab.get_all_values()
         if stable_hash(pad(inputs, 4)) != receipt["inputs_hash"]:
             raise ValueError("Existing inputs verification failed")
+        if receipt.get("seal_version") == 2:
+            verified_seal(inputs_tab, inputs, 4)
     return receipt
 
 
 def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
+    import gspread
     title = f"{batch_date.day}-{batch_date.strftime('%b')}-{batch_date.year}"
     config_hash = stable_hash(config)
-    # Audit and coverage are explicit, not hidden behind an apparently complete result.
-    audit_tab = write_matrix(sheet, "Latest assessment audit", audit, overwrite=True)
-    if records:
-        write_matrix(sheet, "Inputs " + title, records)
     coverage_rows = [["Field", "Value"]] + [[k, v] for k, v in coverage.items()]
     coverage_rows += [["Batch date", batch_date.isoformat()], ["Criteria", json.dumps(config, sort_keys=True)],
                       ["Latest audit", "Latest assessment audit"],
                       ["Limitations", "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."]]
-    write_matrix(sheet, "Coverage " + title, coverage_rows)
+    # A completed receipt is checked BEFORE mutating audit or companion tabs.
+    # This also protects a second invocation that started before the first
+    # invocation finished and therefore did not see its initial checkpoint.
+    existing = resume_complete(sheet, batch_date, config)
+    if existing:
+        if existing.get("content_hash") != stable_hash(strings(rows)):
+            raise ValueError("Conflicting completed batch; no writes performed")
+        return existing
+    intended = {title: rows, "Coverage " + title: coverage_rows}
+    if records:
+        intended["Inputs " + title] = records
+    for dated_title, intended_rows in intended.items():
+        try:
+            candidate = sheet.worksheet(dated_title)
+        except gspread.WorksheetNotFound:
+            continue
+        if not owned(candidate):
+            raise ValueError("Dated output belongs to another run; no writes performed")
+        if candidate.get_note("A1").startswith(SEALED):
+            expected = strings(intended_rows)
+            width = max(map(len, expected))
+            if pad(candidate.get_all_values(), width) != pad(expected, width):
+                raise ValueError("Sealed companion differs; no writes performed")
+    # Audit and coverage are explicit, not hidden behind an apparently complete result.
+    audit_tab = write_matrix(sheet, "Latest assessment audit", audit, overwrite=True)
+    inputs_tab = None
+    if records:
+        inputs_tab = write_matrix(sheet, "Inputs " + title, records)
+    coverage_tab = write_matrix(sheet, "Coverage " + title, coverage_rows)
     tab = write_matrix(sheet, title, rows)
-    receipt = {"batch_date": batch_date.isoformat(), "status": coverage["status"],
+    # Companion tables become immutable before the final completion marker.
+    seal(coverage_tab)
+    if inputs_tab is not None:
+        seal(inputs_tab)
+    receipt = {"seal_version": 2, "batch_date": batch_date.isoformat(), "status": coverage["status"],
                "tab_id": tab.id, "criteria_hash": config_hash,
                "content_hash": stable_hash(strings(rows)),
                "coverage_hash": stable_hash(strings(coverage_rows)),

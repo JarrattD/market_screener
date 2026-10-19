@@ -352,9 +352,39 @@ def latest_statement(rows: list[dict[str, Any]], symbol: str,
         if period_end > datetime.now(UTC).date():
             continue
         candidates.append(row)
-    return max(candidates, key=lambda row: (str(row["date"]),
-               str(row.get("acceptedDate") or row.get("filingDate") or row.get("fillingDate") or ""),
-               str(row.get("period") or "").upper() == "FY"), default=None)
+    if not candidates:
+        return None
+    newest_end = max(str(row["date"])[:10] for row in candidates)
+    newest = [row for row in candidates if str(row["date"])[:10] == newest_end]
+    def revision(row):
+        return _timestamp(row.get("acceptedDate") or row.get("filingDate") or row.get("fillingDate"))
+    from decimal import Decimal, InvalidOperation
+    def normalized(value):
+        if value is None or value == "":
+            return None
+        try:
+            number = Decimal(str(value))
+            return number if number.is_finite() else str(value)
+        except InvalidOperation:
+            return str(value)
+    # Only financially material values used by this screen participate. Metadata,
+    # endpoint period labels and equivalent numeric encodings are not conflicts.
+    fields = ("revenue", "grossProfit", "totalDebt", "cashAndShortTermInvestments",
+              "cashAndCashEquivalents", "shortTermInvestments", "totalStockholdersEquity",
+              "goodwillAndIntangibleAssets", "goodwill", "intangibleAssets", "preferredStock",
+              "freeCashFlow", "operatingCashFlow", "capitalExpenditure")
+    def signatures(records):
+        return {(str(row.get("reportedCurrency") or ""),
+                 *(normalized(row.get(key)) for key in fields),
+                 str(row.get("startDate") or row.get("periodStartDate") or "")[:10]) for row in records}
+    if any(revision(row) is None for row in newest) and len(signatures(newest)) > 1:
+        return None
+    unknown = datetime.min.replace(tzinfo=UTC)
+    latest_revision = max((revision(row) or unknown) for row in newest)
+    newest = [row for row in newest if (revision(row) or unknown) == latest_revision]
+    if len(signatures(newest)) > 1:
+        return None
+    return max(newest, key=lambda row: str(row.get("period") or "").upper() == "FY")
 
 
 def five_year_cashflows(rows: list[dict[str, Any]], symbol: str
@@ -365,7 +395,7 @@ def five_year_cashflows(rows: list[dict[str, Any]], symbol: str
     fiscal-year transition stubs cannot silently become a five-year average.
     Values themselves remain untouched for the calculation layer to validate.
     """
-    by_year: dict[int, dict[str, Any]] = {}
+    by_year: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
         if latest_statement([row], symbol, annual_only=True) is None:
             continue
@@ -377,11 +407,12 @@ def five_year_cashflows(rows: list[dict[str, Any]], symbol: str
             continue
         if not 1900 <= year <= datetime.now(UTC).year + 1:
             continue
-        previous = by_year.get(year)
-        by_year[year] = latest_statement([previous, row] if previous else [row], symbol, annual_only=True)
+        by_year.setdefault(year, []).append(row)
     all_years = sorted(by_year, reverse=True)
     years = all_years[:5]
-    selected = [by_year[year] for year in years]
+    selected = [latest_statement(by_year[year], symbol, annual_only=True) for year in years]
+    if any(row is None for row in selected):
+        return [], "ambiguous_annual_revisions"
     if len(selected) < 5:
         return selected, "fewer_than_five_completed_financial_years"
     if any(years[index] - years[index + 1] != 1 for index in range(4)):
@@ -400,7 +431,10 @@ def five_year_cashflows(rows: list[dict[str, Any]], symbol: str
             if not 350 <= (end - start).days + 1 <= 380:
                 return selected, "annual_cashflow_is_partial_period"
     if len(all_years) > 5 and all_years[5] == years[-1] - 1:
-        preceding_end = date.fromisoformat(str(by_year[all_years[5]]["date"])[:10])
+        preceding = latest_statement(by_year[all_years[5]], symbol, annual_only=True)
+        if preceding is None:
+            return selected, "ambiguous_preceding_annual_revision"
+        preceding_end = date.fromisoformat(str(preceding["date"])[:10])
         if not 350 <= (dates[-1] - preceding_end).days <= 380:
             return selected, "oldest_cashflow_is_partial_period"
     # FMP normally omits startDate. In its absence annual/FY classification plus
@@ -503,6 +537,8 @@ class FMPClient:
                 # str(aiohttp exceptions) can contain the authenticated URL.
                 error = FMPError("network_or_timeout")
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 if exc.status != 429 and not (exc.status is not None and exc.status >= 500):
                     raise
                 error = exc
@@ -533,6 +569,8 @@ class FMPClient:
         except FMPAuthenticationError:
             raise
         except FMPError as exc:
+            if self._fatal:
+                raise self._fatal
             if exc.status not in (404, 410):
                 raise
             if exc.reason == "legacy_endpoint_retired":
@@ -554,6 +592,8 @@ class FMPClient:
             except FMPAuthenticationError:
                 raise
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 errors.append(exc.reason)
                 self.diagnostics.append(Issue("", "universe:" + path, exc.reason))
                 continue
@@ -603,6 +643,8 @@ class FMPClient:
                 except FMPAuthenticationError:
                     raise
                 except FMPError as exc:
+                    if self._fatal:
+                        raise self._fatal
                     self.diagnostics.append(Issue("", "profile_bulk", exc.reason))
                     if exc.status in (402, 403, 404, 410, 429):
                         break
@@ -617,6 +659,8 @@ class FMPClient:
             except FMPAuthenticationError:
                 raise
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 self.diagnostics.append(Issue("", "profile_batch", exc.reason))
                 if exc.status in (402, 403, 404, 410, 429):
                     if exc.reason == "legacy_endpoint_retired":
@@ -633,6 +677,8 @@ class FMPClient:
             except FMPAuthenticationError:
                 raise
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 issues.append(Issue(symbol, "profile", exc.reason))
 
         incomplete = {symbol for symbol, profile in profiles.items()
@@ -670,6 +716,8 @@ class FMPClient:
             except FMPAuthenticationError:
                 raise
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 issues.append(Issue(symbol, "market_cap_currency", exc.reason))
 
         await _map_bounded(sorted(profiles), units, self.concurrency)
@@ -701,6 +749,8 @@ class FMPClient:
             except FMPAuthenticationError:
                 raise
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 self.diagnostics.append(Issue("", "fx_bulk", exc.reason))
             self._fx_loaded = True
 
@@ -728,6 +778,8 @@ class FMPClient:
                     except FMPAuthenticationError:
                         raise
                     except FMPError:
+                        if self._fatal:
+                            raise self._fatal
                         point = None
                 if point:
                     value, stamp = point
@@ -783,6 +835,8 @@ class FMPClient:
             except FMPAuthenticationError:
                 raise
             except FMPError as exc:
+                if self._fatal:
+                    raise self._fatal
                 return None, exc.reason
 
         async def one(symbol: str) -> None:
