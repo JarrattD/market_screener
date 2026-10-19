@@ -1,0 +1,58 @@
+name: Low Book Value and High Gross Margin Screen
+on:
+  schedule:
+    - cron: '0 3 * * 6'
+      timezone: Europe/London
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'book_margin_screen.py'
+      - 'screenerV3/book_margin*'
+      - 'tests/test_book_margin*'
+      - '.github/workflows/book-margin-screen.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - run: python -m unittest discover -s tests -p 'test_book_margin*.py' -v
+      - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+  screen:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      group: production-screener
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - name: Run separate ordinary-book and gross-margin screen
+        env:
+          FMP_KEY: ${{ secrets.FMP_KEY }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          BOOK_MARGIN_SHEET_ID: ${{ secrets.BOOK_MARGIN_SHEET_ID }}
+        run: |
+          umask 077
+          mkdir -p private_screen_run
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          Path('private_screen_run/service_account.json').write_text(os.environ['SERVICE_ACCOUNT_JSON'])
+          PY
+          python book_margin_screen.py --service-account private_screen_run/service_account.json --spreadsheet-id "$BOOK_MARGIN_SHEET_ID"
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f private_screen_run/service_account.json
