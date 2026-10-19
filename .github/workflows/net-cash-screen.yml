@@ -34,6 +34,7 @@ jobs:
     concurrency:
       # Serialize against both old screeners to protect their shared FMP budget.
       group: production-screener
+      queue: max
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
