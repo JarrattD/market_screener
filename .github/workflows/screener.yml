@@ -32,6 +32,7 @@ jobs:
     needs: test-completion
     concurrency:
       group: production-screener
+      queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
 
