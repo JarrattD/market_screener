@@ -106,7 +106,10 @@ class Sheet:
         '''
         seen = []
         sheets = []
-        all_sheets = self.get_all_worksheets()
+        # Audit/provisional tabs never count as previously screened results.
+        import re
+        all_sheets = [w for w in self.get_all_worksheets()
+                      if re.fullmatch(r"\d{1,2}-[A-Za-z]{3}-\d{4}", w.title)]
         weeks = len(all_sheets)
         if weeks > 52:
             sheets = all_sheets[:52]

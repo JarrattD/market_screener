@@ -1,15 +1,28 @@
+from __future__ import annotations
 import aiohttp
 from dotenv import load_dotenv
 import os
 import json
 import pandas as pd
-from screener.Sheet import Sheet
+from datetime import datetime, timezone
+from urllib.parse import quote
+from .negative_ev_provider import (FMPClient, FMPError, FMPAuthenticationError, Issue,
+    normalize_profile, reconcile_cap_units, boolean)
+from .data_freshness import DataFreshnessError, require_quote_current, require_statement_current
+from .quote_refresh import refresh_quotes
+from .legacy_statement_quality import resolve, annual_history
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from screener.Sheet import Sheet
 
 load_dotenv()
 
 class Handler:
     def __init__(self) -> None:
         self.api_key = os.environ['FMP_KEY']
+        self.quality_audit = []
+        self._profiles = {}
+        self._client = FMPClient(self.api_key)
     
     def __read_json_file(self, file_path) -> dict[str:list]:
             """
@@ -48,33 +61,109 @@ class Handler:
         print(f"{removed} tickers removed for being screened within the passed year.")
         return ret
     
-    async def get_profile(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={self.api_key}') as response:
+    def _record(self, ticker, status, reason, source="", source_date=""):
+        self.quality_audit.append([ticker, status, reason, source, source_date,
+                                   datetime.now(timezone.utc).isoformat()])
+
+    async def _read(self, session, path, params=None):
+        # Reuse the existing session and credentials, with one shared limiter.
+        self._client._session = session
+        return await self._client._request(path, params)
+
+    async def get_profile(self, session: aiohttp.ClientSession, ticker: str):
+        requested = set(ticker.split(","))
+        rows = await self._read(session, "/api/v3/profile/" + quote(ticker, safe=",.-^"))
+        profiles = {}
+        for row in rows:
+            symbol = row.get("symbol")
+            if symbol not in requested:
+                continue
+            active = boolean(row.get("isActivelyTrading"))
+            if active is False:
+                self._record(symbol, "excluded_inactive", "Provider marks listing inactive", "FMP profile")
+                continue
+            if active is not True:
+                self._record(symbol, "unresolved", "Active-company flag missing", "FMP profile")
+                continue
+            profiles[symbol] = normalize_profile(row)
+        for symbol in requested - {row.get("symbol") for row in rows}:
+            self._record(symbol, "unresolved", "Profile missing", "FMP profile")
+        refreshed, issues = await refresh_quotes(self._client, profiles,
+            normalize_profile=normalize_profile, reconcile_cap_units=reconcile_cap_units,
+            issue_type=Issue, error_type=FMPError, auth_error_type=FMPAuthenticationError)
+        if self._client.health.get("systemic_failure"):
+            raise FMPError("Current quote acquisition failed; refusing an empty completed screen")
+        for issue in issues:
+            self._record(issue.symbol, "unresolved", issue.reason, "FMP quote")
+        valid = []
+        for symbol, row in refreshed.items():
             try:
-                return await response.json()
-            except Exception as e:
-                pass
-    
-    async def get_historical(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={self.api_key}') as response:
+                require_quote_current(row)
+                if row.get("cap_amount") is None or row["cap_amount"] <= 0:
+                    raise DataFreshnessError("Current quoted market cap missing or nonpositive")
+            except DataFreshnessError as exc:
+                self._record(symbol, "unresolved", str(exc), "FMP quote", row.get("as_of", ""))
+                continue
+            # Preserve the existing engine's field contract and investment rules.
+            row["mktCap"] = row["cap_amount"]
+            self._profiles[symbol] = row
+            self._record(symbol, "quote_verified", "Active listing and dated quote verified", "FMP quote", row["as_of"])
+            valid.append(row)
+        return valid
+
+    async def get_historical(self, session: aiohttp.ClientSession, ticker: str):
+        # Historical prices are descriptive only; the current quote must have
+        # been verified before either engine evaluates a market-cap ratio.
+        async with session.get(f'https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}',
+                               params={"apikey": self.api_key}) as response:
+            if response.status in (401, 429):
+                raise FMPError("historical_provider_auth_or_quota_failure", response.status)
+            if response.status != 200:
+                self._record(ticker, "unresolved", "Historical prices unavailable", "FMP historical prices")
+                return None
             try:
-                return await response.json()# if response.status == 200 else print("Hit API limit. Waiting 55 seconds.") and sleep(55)
-            except Exception as e:
-                pass
-    
-    async def get_balance_sheet(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/balance-sheet-statement/{ticker}?period=quarter&limit=5&apikey={self.api_key}') as response:
-            try:
-                return await response.json()# if response.status == 200 else print("Hit API limit. Waiting 55 seconds.") and sleep(55)
-            except Exception as e:
-                pass
-    
-    async def get_cashflow(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/cash-flow-statement/{ticker}?period=annual&limit=5&apikey={self.api_key}') as response:
-            try:
-                return await response.json()# if response.status == 200 else print("Hit API limit. Waiting 55 seconds.") and sleep(55)
-            except Exception as e:
-                pass
+                result = await response.json()
+            except (ValueError, aiohttp.ClientError):
+                self._record(ticker, "unresolved", "Historical response invalid", "FMP historical prices")
+                return None
+        history = result.get("historical", []) if isinstance(result, dict) else []
+        try:
+            if not history:
+                raise DataFreshnessError("Historical price series missing")
+            require_quote_current({"as_of": str(history[0].get("date", "")) + "T00:00:00+00:00"})
+        except DataFreshnessError as exc:
+            self._record(ticker, "unresolved", str(exc), "FMP historical prices")
+            return None
+        return result
+
+    def _validate_financial(self, ticker, rows, label, annual=False):
+        latest = None
+        try:
+            validated = annual_history(rows, ticker) if annual else [resolve(rows, ticker)]
+            latest = validated[0]
+            if latest is None:
+                raise DataFreshnessError(f"{label} missing or ambiguous")
+            require_statement_current(latest, label)
+            profile = self._profiles.get(ticker, {})
+            # The old engines assume matching monetary units. Do not silently
+            # divide reporting-currency financials by a foreign-currency cap.
+            if not latest.get("reportedCurrency") or latest["reportedCurrency"] != profile.get("cap_currency"):
+                raise DataFreshnessError("Reporting/market-cap currencies differ or are missing; currency reconciliation required")
+        except DataFreshnessError as exc:
+            self._record(ticker, "unresolved", str(exc), label, latest.get("date", "") if latest else "")
+            return None
+        self._record(ticker, "financial_verified", label + " period verified", "FMP statement", latest["date"])
+        return validated if annual else [latest] + [row for row in rows if row is not latest]
+
+    async def get_balance_sheet(self, session: aiohttp.ClientSession, ticker: str):
+        rows = await self._read(session, "/api/v3/balance-sheet-statement/" + quote(ticker, safe=""),
+                                {"period": "quarter", "limit": 5})
+        return self._validate_financial(ticker, rows, "Latest balance sheet")
+
+    async def get_cashflow(self, session: aiohttp.ClientSession, ticker: str):
+        rows = await self._read(session, "/api/v3/cash-flow-statement/" + quote(ticker, safe=""),
+                                {"period": "annual", "limit": 5})
+        return self._validate_financial(ticker, rows, "Annual cash flow", annual=True)
 
     async def get_key_metrics(self, session: aiohttp.ClientSession, ticker: str) -> str:
         """

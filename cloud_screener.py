@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from screenerV3.legacy_quality_audit import write_quality_audit
 from screenerV3.completion import write_verified, resume_verified, publish_manifest, london_batch_date
 
 service_account = './screener/service_account.json'
@@ -31,6 +32,9 @@ async def main(sheet_factory=None, screener_factories=None, batch_date=None,
             if screener.sheet_client.file.id != sheet.file.id:
                 raise ValueError('Screener destination changed')
             await screener.run_async(debug=False)
+            handler = getattr(screener, "handler", None)
+            if handler is not None and hasattr(handler, "quality_audit"):
+                write_quality_audit(sheet, kind, handler.quality_audit, batch_date)
             receipt = write_verified(sheet, kind, screener.results, batch_date)
         receipts.append(receipt)
         if kind == 'alpha':
