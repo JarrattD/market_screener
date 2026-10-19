@@ -343,6 +343,10 @@ def latest_statement(rows: list[dict[str, Any]], symbol: str,
             continue
         if period_end > datetime.now(UTC).date():
             continue
+        if any((_timestamp(row.get(key)) is not None and
+                _timestamp(row[key]) > datetime.now(UTC) + timedelta(hours=1))
+               for key in ("acceptedDate", "filingDate", "fillingDate")):
+            continue
         candidates.append(row)
     if not candidates:
         return None
