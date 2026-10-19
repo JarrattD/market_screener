@@ -5,13 +5,13 @@ requested. Every eligible stock reaches the balance stage. Only verified
 negative-EV stocks need the longer cash-flow history.
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 import asyncio
 
 from .negative_ev_provider import (
     FMPClient as ProviderClient, FMPError, FMPAuthenticationError, Issue,
-    latest_statement, utc_now, _map_bounded,
+    latest_statement, utc_now, _map_bounded, _timestamp,
 )
 
 
@@ -26,10 +26,18 @@ class CashflowHistory:
 
 def available_statements(rows):
     """Exclude a future filing as well as a future financial period."""
-    today = datetime.now(timezone.utc).date().isoformat()
-    return [row for row in rows if all(
-        not row.get(key) or str(row[key])[:10] <= today
-        for key in ("date", "filingDate", "fillingDate", "acceptedDate"))]
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    def available(row):
+        if row.get("date") and str(row["date"])[:10] > today:
+            return False
+        for key in ("filingDate", "fillingDate", "acceptedDate"):
+            if row.get(key):
+                stamp = _timestamp(row[key])
+                if stamp is None or stamp > now + timedelta(hours=1):
+                    return False
+        return True
+    return [row for row in rows if available(row)]
 
 
 class FMPClient(ProviderClient):

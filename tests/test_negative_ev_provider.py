@@ -1,7 +1,7 @@
 """Offline data-pipeline regressions. No credentials or network are used."""
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from screenerV3.negative_ev_provider import (
@@ -51,6 +51,14 @@ class FakeSession:
 
 
 class DataPipelineTests(unittest.IsolatedAsyncioTestCase):
+    def test_future_revision_cannot_replace_an_available_balance(self):
+        current = dict(symbol="ONE", date="2025-12-31", period="FY", reportedCurrency="USD",
+                       totalDebt=0, cashAndShortTermInvestments=50)
+        future = dict(current, acceptedDate=(datetime.now(timezone.utc)+timedelta(hours=2)).isoformat(),
+                      cashAndShortTermInvestments=1000)
+        self.assertEqual(latest_statement([future,current], "ONE"), current)
+        self.assertIsNone(latest_statement([future], "ONE"))
+
     def test_balance_revision_timestamps_are_normalized(self):
         older = dict(symbol="ONE", date="2025-12-31", period="FY", reportedCurrency="USD",
                      acceptedDate="2026-02-01T09:00:00Z", totalDebt=0, cashAndShortTermInvestments=200)

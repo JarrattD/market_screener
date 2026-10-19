@@ -1,11 +1,19 @@
 """Offline requests: no market data, credentials or Google writes."""
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 from screenerV3.negative_ev_data import FMPClient, available_statements
 from screenerV3.negative_ev_provider import FMPError
 
 
 class BalanceFirstTests(unittest.IsolatedAsyncioTestCase):
+    def test_same_day_future_filing_timestamp_is_unavailable(self):
+        now = datetime.now(timezone.utc)
+        for field in ("acceptedDate", "filingDate", "fillingDate"):
+            future = dict(date="2025-12-31", **{field:(now+timedelta(hours=2)).isoformat()})
+            current = dict(date="2025-12-31", **{field:(now-timedelta(days=1)).isoformat()})
+            self.assertEqual(available_statements([future,current]), [current])
+
     async def test_quota_circuit_breaker_after_partial_success_propagates(self):
         client = FMPClient("dummy", concurrency=1)
         async def request(path, params=None, **kwargs):
