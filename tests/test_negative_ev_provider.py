@@ -138,6 +138,10 @@ class DataPipelineTests(unittest.IsolatedAsyncioTestCase):
         client = FMPClient("dummy-test-key", use_profile_bulk=False)
 
         async def request(path, params=None, **kwargs):
+            if path == "/stable/batch-quote":
+                return [dict(symbol=s, marketCap=100, price=1,
+                             timestamp=int(datetime.now(timezone.utc).timestamp()))
+                        for s in params["symbols"].split(",")]
             if path.endswith("/ONE,THREE,TWO"):
                 return [profile("ONE")]
             if path.endswith("/TWO"):
