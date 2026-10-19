@@ -3,6 +3,7 @@ import contextlib
 import io
 import types
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ class FixtureClient:
     metrics = {}
 
     def __init__(self, *, cap=50, cash=100, debt=10, flows=None, reporting="GBP", cap_currency="GBP"):
-        self.profile = dict(symbol="ONE", companyName="Fixture", country="CN", security_eligible=True,
+        self.profile = dict(as_of=datetime.now(timezone.utc).isoformat(), symbol="ONE", companyName="Fixture", country="CN", security_eligible=True,
                             cap_amount=cap, cap_currency=cap_currency, security_identity="ISIN:ONE")
         self.balance = dict(date="2026-06-30", period="Q2", reportedCurrency=reporting,
                             cashAndShortTermInvestments=cash, totalDebt=debt)
@@ -47,6 +48,34 @@ class FixtureClient:
 
 
 class ScreenTests(unittest.IsolatedAsyncioTestCase):
+    async def test_undated_and_stale_quote_are_unresolved_before_balance_gate(self):
+        for stamp in ("", "2019-12-31T00:00:00+00:00"):
+            client = FixtureClient()
+            client.profile["as_of"] = stamp
+            args = await self.assess(client)
+            self.assertEqual(client.balance_symbols, [])
+            self.assertEqual(client.cashflow_symbols, [])
+            self.assertEqual(args[4]["unresolved"], 1)
+
+    async def test_old_balance_is_unresolved_not_rejected_or_match(self):
+        for period in ("2004-12-31", "2019-12-31"):
+            client = FixtureClient()
+            client.balance["date"] = period
+            args = await self.assess(client)
+            self.assertEqual(client.cashflow_symbols, [])
+            self.assertEqual(args[4]["unresolved"], 1)
+            self.assertNotIn("rejected", args[4])
+
+    async def test_complete_but_obsolete_five_fy_sum_is_unresolved(self):
+        client = FixtureClient()
+        for row in client.history.annual:
+            year = row["fiscalYear"] - 10
+            row.update(fiscalYear=year, date=f"{year}-12-31", startDate=f"{year}-01-01")
+        args = await self.assess(client)
+        self.assertEqual(args[4]["unresolved"], 1)
+        self.assertEqual(args[4]["matched_rows"], 0)
+        self.assertIn("Five-year FCF window endpoint", args[3][1][2])
+
     async def test_quota_circuit_breaker_never_creates_completion(self):
         from screenerV3.negative_ev_provider import FMPError
         client = FixtureClient(cash=60)

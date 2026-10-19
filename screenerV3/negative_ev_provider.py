@@ -623,33 +623,14 @@ class FMPClient:
             if profile.get("security_eligible") is True and profile.get("marketCap") is None:
                 issues.append(Issue(symbol, "market_cap", "missing_market_cap"))
 
-        async def units(symbol: str) -> None:
-            profile = profiles[symbol]
-            _, scale = currency_units(str(profile.get("currency") or ""))
-            if scale == 1:
-                if not profile.get("cap_currency"):
-                    issues.append(Issue(symbol, "market_cap_currency", "missing_or_invalid_currency"))
-                return
-            try:
-                rows = await self._compatible("/stable/quote", "/api/v3/quote/" + quote(symbol, safe=""),
-                                              {"symbol": symbol})
-                matching = next((row for row in rows if row.get("symbol") == symbol), {})
-                # Stable quotes may omit shares outstanding; the legacy quote
-                # still provides that documented field on eligible accounts.
-                if number(matching.get("sharesOutstanding")) is None and self._legacy_available:
-                    rows = await self._request("/api/v3/quote/" + quote(symbol, safe=""))
-                    matching = next((row for row in rows if row.get("symbol") == symbol), {})
-                profiles[symbol], issue = reconcile_cap_units(profile, matching)
-                if issue:
-                    issues.append(issue)
-            except FMPAuthenticationError:
-                raise
-            except FMPError as exc:
-                if self._fatal is not None:
-                    raise self._fatal
-                issues.append(Issue(symbol, "market_cap_currency", exc.reason))
-
-        await _map_bounded(sorted(profiles), units, self.concurrency)
+        # Metadata/profile caps are never current-price evidence. Refresh every
+        # eligible listing before downstream valuation or market-cap gates.
+        from .quote_refresh import refresh_quotes
+        profiles, quote_issues = await refresh_quotes(
+            self, profiles, normalize_profile=normalize_profile,
+            reconcile_cap_units=reconcile_cap_units, issue_type=Issue,
+            error_type=FMPError, auth_error_type=FMPAuthenticationError)
+        issues.extend(quote_issues)
         self.health["profile_data_available"] = bool(profiles)
         if listing and not profiles:
             self.health["systemic_failure"] = True

@@ -9,6 +9,9 @@ on:
     paths:
       - 'negative_ev_fcf_screen.py'
       - 'screenerV3/negative_ev*'
+      - 'screenerV3/quote_refresh.py'
+      - 'screenerV3/data_freshness.py'
+      - 'tests/test_quote_refresh.py'
       - 'tests/test_negative_ev*'
       - '.github/workflows/negative-ev-fcf-screen.yml'
 permissions:
@@ -22,6 +25,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install aiohttp gspread==6.0.1
+      - run: python -m unittest discover -s tests -p 'test_quote_refresh.py' -v
       - run: python -m unittest discover -s tests -p 'test_negative_ev*.py' -v
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
   screen:

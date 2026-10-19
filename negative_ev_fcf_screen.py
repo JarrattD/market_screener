@@ -13,12 +13,14 @@ import sys
 import time
 from zoneinfo import ZoneInfo
 
+from screenerV3.data_freshness import POLICY, DataFreshnessError, require_quote_current, require_statement_current
 from screenerV3.negative_ev_calculations import enterprise_value, cumulative_fcf
 from screenerV3.negative_ev_output import open_destination, publish, resume_complete
 
 
 CONFIG = {
-    "version": "negative-ev-fcf-v1",
+    "version": "negative-ev-fcf-v2",
+    "data_freshness": POLICY,
     "enterprise_value": "market_cap_in_reporting_currency + total_debt - cash_and_short_term_investments",
     "ev_strictly_below": "0",
     "cumulative_reported_fcf_strictly_above": "0",
@@ -105,6 +107,11 @@ async def screen(client, sheet):
                 "excluded_security" if profile.get("security_eligible") is False else "unresolved",
                 profile.get("security_reason", "Security eligibility unknown"))
         else:
+            try:
+                require_quote_current(profile, assessed)
+            except DataFreshnessError as exc:
+                audit[symbol] = audit_row(symbol, "unresolved", str(exc))
+                continue
             eligible.append(symbol)
     print("Reading latest annual and interim balance sheets", flush=True)
     balances, balance_issues = await client.fetch_balances(eligible)
@@ -126,6 +133,11 @@ async def screen(client, sheet):
         balance = balances.get(symbol)
         if not balance:
             audit[symbol] = audit_row(symbol, "unresolved", "Latest balance sheet unavailable or unverified")
+            continue
+        try:
+            require_statement_current(balance, "Latest balance sheet", assessed.date())
+        except DataFreshnessError as exc:
+            audit[symbol] = audit_row(symbol, "unresolved", str(exc))
             continue
         profile = profiles[symbol]
         conversion, rate, rate_date = ev_fx(profile, balance, rates)
@@ -151,6 +163,12 @@ async def screen(client, sheet):
                                 symbol=symbol, as_of=assessed.date())
         if result.get("status") != "ok":
             audit[symbol] = audit_row(symbol, "unresolved", reasons(result))
+            continue
+        try:
+            require_statement_current({"date": result.get("period_end")},
+                                      "Five-year FCF window endpoint", assessed.date())
+        except DataFreshnessError as exc:
+            audit[symbol] = audit_row(symbol, "unresolved", str(exc))
             continue
         if not result["passes"]:
             audit[symbol] = audit_row(symbol, "rejected", f"Cumulative FCF {result['fcf_sum']} {result['currency']} is zero or negative; {result['method']}; {result['period_start']} to {result['period_end']}")

@@ -65,6 +65,25 @@ This simplified screening EV is not cash available to an acquirer. Restricted
 or customer cash, lease inclusion, preferred/minority claims and accounting
 changes need company-report review before drawing investment conclusions.
 
+## Freshness and active-company validation
+
+Only explicitly active operating-equity listings are eligible; inactive listings
+are excluded and unknown activity remains unresolved. This is not an OTC,
+country or market-cap exclusion. Before any valuation gate, every eligible
+profile is refreshed from actual timestamped quotes. A profile download time
+is not a price date, and its old cap is never retained on quote failure.
+Quotes must be no more than seven days old, allowing weekends and holidays.
+Batch quotes are reconciled symbol by symbol, and all caps remain currency-
+verified. Subunit quotes need coherent current price, cap and shares evidence.
+
+The latest balance-sheet period and selected five-year cash-flow endpoint must
+be within 18 calendar months of assessment. The grace period accommodates
+annual and cross-market reporting, but stale or undated evidence is unresolved
+with a latest-filing verification reason, not a zero or financial rejection.
+Historical periods inside the five-year sum are intentionally historical and
+are not each subjected to a current-period age test. A recent quote cannot
+make obsolete accounts current. The policy is versioned in the run receipt.
+
 ## Acquisition order and coverage
 
 The runner loads the global directory/profiles, then both annual and interim
