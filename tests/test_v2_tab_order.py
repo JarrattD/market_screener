@@ -3,7 +3,7 @@ import importlib
 import sys
 import types
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from screenerV3.completion import write_verified
@@ -48,38 +48,56 @@ class TabOrderTests(unittest.TestCase):
         else:
             cls.Sheet = importlib.import_module('screenerV3.sheet').Sheet
 
-    def history(self, file):
+    def history(self, file, as_of=date(2026, 10, 24)):
         sheet = self.Sheet.__new__(self.Sheet)
         sheet.file = file
-        return sheet.get_all_previously_seen_tickers()
+        with patch('screenerV3.completion.london_batch_date', return_value=as_of):
+            return sheet.get_all_previously_seen_tickers()
 
-    def test_exact_52_tab_history_before_and_after_ranked_move(self):
-        raw = [Tab('run-' + str(i)) for i in range(54)]
+    def test_calendar_window_is_independent_of_tab_order_and_count(self):
+        raw = [Tab((date(2026, 10, 23) - timedelta(days=i)).strftime('%d-%b-%Y')) for i in range(60)]
+        old = Tab('23-Oct-2025')
         ranked = Tab('V2 Ranked')
         companions = [ranked, Tab('V2 Run Map'), Tab('V2 Metrics'), Tab('V2 Refresh Log')]
-        original = raw + companions
-        moved = [ranked] + raw + companions[1:]
-        expected = [w.title + '-ticker' for w in original[:52]]
-        self.assertEqual(self.history(File(original)), expected)
-        self.assertEqual(self.history(File(moved)), expected)
-        universe = expected + ['new-ticker', raw[52].title + '-ticker']
-        self.assertEqual([t for t in universe if t not in self.history(File(moved))],
-                         [t for t in universe if t not in expected])
+        expected = [w.title + '-ticker' for w in raw]
+        self.assertEqual(self.history(File(raw + [old] + companions)), expected)
+        self.assertEqual(self.history(File([ranked, old] + raw + companions[1:])), expected)
+        self.assertEqual(len(expected), 60)
 
-    def test_companions_interspersed_do_not_use_history_slots(self):
-        raw = [Tab('one'), Tab('two')]
-        self.assertEqual(history_worksheets(File([]), [Tab('V2 Metrics'), raw[0], Tab('V2 Ranked'), raw[1]]), raw)
+    def test_anniversary_is_eligible_and_same_day_still_on_cooldown(self):
+        tabs = [Tab('23-Oct-2025'), Tab('24-Oct-2025'), Tab('25-Oct-2025'), Tab('24-Oct-2026')]
+        self.assertEqual(self.history(File(tabs)), [w.title + '-ticker' for w in tabs[2:]])
+
+    def test_leap_day_anniversary_clamps_to_last_day_of_february(self):
+        tabs = [Tab('27-Feb-2023'), Tab('28-Feb-2023'), Tab('1-Mar-2023')]
+        self.assertEqual(self.history(File(tabs), date(2024, 2, 29)), ['1-Mar-2023-ticker'])
+        leap = [Tab('28-Feb-2024'), Tab('29-Feb-2024'), Tab('1-Mar-2024')]
+        self.assertEqual(self.history(File(leap), date(2025, 3, 1)), [])
+        self.assertEqual(self.history(File(leap), date(2025, 2, 28)), ['1-Mar-2024-ticker'])
+        self.assertEqual(self.history(File([Tab('29-Feb-2024')]), date(2025, 2, 27)), ['29-Feb-2024-ticker'])
+
+    def test_latest_actual_appearance_controls_without_refresh_dates(self):
+        old, recent = Tab('24-Oct-2025'), Tab('1-Mar-2026')
+        old.get_values = recent.get_values = lambda _: [['ABC'], ['abc'], [' ABC ']]
+        file = File([old, recent, Tab('V2 Metrics')])
+        self.assertEqual(self.history(file), ['ABC', 'abc', ' ABC '])
+        self.assertEqual(self.history(file, date(2027, 3, 1)), [])
+
+    def test_invalid_and_future_dates_fail_closed(self):
+        for title in ['unknown', 'V2 Ranked archive', '31-Feb-2026', '1-Foo-2026', '25-Oct-2026']:
+            with self.subTest(title=title), self.assertRaises(ValueError):
+                self.history(File([Tab(title)]))
 
     def test_other_workbooks_unchanged(self):
         tabs = [Tab('V2 Ranked')] + [Tab(str(i)) for i in range(55)]
         file = File(tabs, 'Screener')
-        self.assertIs(history_worksheets(file, tabs), tabs)
+        self.assertEqual(history_worksheets(file, tabs), tabs[:52])
         self.assertEqual(self.history(file), [w.title + '-ticker' for w in tabs[:52]])
         self.assertEqual(output_tab_options(file, 'beta'), {})
 
-    def test_only_exact_companion_names_excluded(self):
-        tab = Tab('V2 Ranked archive')
-        self.assertEqual(history_worksheets(File([]), [tab]), [tab])
+    def test_empty_or_only_companion_tabs(self):
+        self.assertEqual(self.history(File([])), [])
+        self.assertEqual(self.history(File([Tab('V2 Ranked'), Tab('V2 Metrics')])), [])
 
     def test_unmoved_ranked_or_missing_ranked_keeps_default_insertion(self):
         for tabs in [[], [Tab('old')], [Tab('old'), Tab('V2 Ranked')]]:
