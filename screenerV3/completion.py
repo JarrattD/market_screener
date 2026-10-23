@@ -7,6 +7,7 @@ from urllib.request import urlopen
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from screenerV3.tab_order import output_tab_options
 
 HEADERS = {
     'alpha': ['Ticker', 'Company Name', 'FV Upside', '5Y Price Metric', ' ', 'NCAV Ratio', 'EV/aFCF', 'Payback Rating', 'Average Yield', 'HQ Country'],
@@ -76,7 +77,8 @@ def write_verified(sheet, kind, results, batch_date):
             raise ValueError('Existing verified output differs; refusing overwrite')
         return existing
     title = tab_title(batch_date)
-    worksheet = sheet.file.add_worksheet(title=title, rows=max(100, len(expected)), cols=width)
+    worksheet = sheet.file.add_worksheet(title=title, rows=max(100, len(expected)), cols=width,
+                                         **output_tab_options(sheet.file, kind))
     worksheet.update(range_name=f'A1:{chr(64+width)}{len(expected)}', values=expected, value_input_option='RAW')
     actual = worksheet.get_all_values(value_render_option='UNFORMATTED_VALUE')
     if canonical(actual, width) != canonical(expected, width):
@@ -124,3 +126,4 @@ def london_batch_date():
         created = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
         return created.astimezone(ZoneInfo('Europe/London')).date()
     return datetime.now(ZoneInfo('Europe/London')).date()
+
