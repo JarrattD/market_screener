@@ -1,4 +1,4 @@
-"""Keep V2 dashboard presentation separate from its raw screening history."""
+"""Keep dashboard presentation separate from its raw screening history."""
 
 from calendar import monthrange
 from datetime import date
@@ -9,13 +9,21 @@ V2_COMPANION_TABS = frozenset({
 })
 
 
+MAIN_COMPANION_TABS = frozenset({
+    'Main Ranked', 'Main Run Map', 'Main Metrics', 'Main Refresh Log',
+})
+COMPANION_TABS = {'V2 Screener': V2_COMPANION_TABS, 'Screener': MAIN_COMPANION_TABS}
+
+
 def history_worksheets(file, worksheets, as_of=None):
-    """Keep V2 appearances on cooldown until their 12-month anniversary.
+    """Keep main and V2 appearances on cooldown until their 12-month anniversary.
 
     Unknown or future run dates fail closed instead of silently allowing repeats.
     Preserve the original first-52 physical-tab behavior for other workbooks.
     """
-    if getattr(file, 'title', None) != 'V2 Screener':
+    workbook_title = getattr(file, 'title', None)
+    companions = COMPANION_TABS.get(workbook_title)
+    if companions is None:
         return worksheets[:52]
     if as_of is None:
         # Same verified London logical run date used by the production writer;
@@ -26,7 +34,7 @@ def history_worksheets(file, worksheets, as_of=None):
         ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'), 1)}
     selected = []
     for worksheet in worksheets:
-        if worksheet.title in V2_COMPANION_TABS:
+        if worksheet.title in companions:
             continue
         match = re.fullmatch(r'(\d{1,2})-([A-Z][a-z]{2})-(\d{4})', worksheet.title)
         try:
@@ -35,9 +43,9 @@ def history_worksheets(file, worksheets, as_of=None):
             day, month, year = match.groups()
             run_date = date(int(year), months[month], int(day))
         except (ValueError, KeyError) as error:
-            raise ValueError(f'V2 history has an invalid run date: {worksheet.title!r}') from error
+            raise ValueError(f'{workbook_title} history has an invalid run date: {worksheet.title!r}') from error
         if run_date > as_of:
-            raise ValueError(f'V2 history has a future run date: {worksheet.title!r}')
+            raise ValueError(f'{workbook_title} history has a future run date: {worksheet.title!r}')
         eligible_on = date(run_date.year + 1, run_date.month,
                            min(run_date.day, monthrange(run_date.year + 1, run_date.month)[1]))
         if as_of < eligible_on:
@@ -46,9 +54,13 @@ def history_worksheets(file, worksheets, as_of=None):
 
 
 def output_tab_options(file, kind):
-    """Insert after Ranked only when it is already the first V2 tab."""
-    if kind == 'beta' and getattr(file, 'title', None) == 'V2 Screener':
+    """Insert after Ranked only when it is already the first tab in its workbook."""
+    ranked_title = {('beta', 'V2 Screener'): 'V2 Ranked',
+                    ('alpha', 'Screener'): 'Main Ranked'}.get(
+                        (kind, getattr(file, 'title', None)))
+    if ranked_title is not None:
         worksheets = file.worksheets()
-        if worksheets and worksheets[0].title == 'V2 Ranked':
+        if worksheets and worksheets[0].title == ranked_title:
             return {'index': 1}
     return {}
+

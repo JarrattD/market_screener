@@ -103,7 +103,7 @@ class Sheet:
     
     def get_all_previously_seen_tickers(self) -> list[str]:
         '''
-        V2: tickers still within their 12-calendar-month appearance cooldown.
+        Main and V2: tickers still within their 12-calendar-month appearance cooldown.
         Other workbooks: retain the original first-52-tab history window.
         '''
         seen = []
@@ -118,4 +118,5 @@ class Sheet:
             self.get_all_previously_seen_tickers()
         
         return [i[0] for sub in seen for i in sub if i] 
+
 
