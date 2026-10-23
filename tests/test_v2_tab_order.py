@@ -90,7 +90,7 @@ class TabOrderTests(unittest.TestCase):
 
     def test_other_workbooks_unchanged(self):
         tabs = [Tab('V2 Ranked')] + [Tab(str(i)) for i in range(55)]
-        file = File(tabs, 'Screener')
+        file = File(tabs, 'Other Screener')
         self.assertEqual(history_worksheets(file, tabs), tabs[:52])
         self.assertEqual(self.history(file), [w.title + '-ticker' for w in tabs[:52]])
         self.assertEqual(output_tab_options(file, 'beta'), {})
@@ -98,6 +98,39 @@ class TabOrderTests(unittest.TestCase):
     def test_empty_or_only_companion_tabs(self):
         self.assertEqual(self.history(File([])), [])
         self.assertEqual(self.history(File([Tab('V2 Ranked'), Tab('V2 Metrics')])), [])
+
+    def test_main_window_and_all_companions_are_order_independent(self):
+        raw = [Tab((date(2026, 10, 23) - timedelta(days=i)).strftime('%d-%b-%Y')) for i in range(60)]
+        companions = [Tab(name) for name in ['Main Ranked', 'Main Run Map', 'Main Metrics', 'Main Refresh Log']]
+        expected = [w.title + '-ticker' for w in raw]
+        self.assertEqual(self.history(File(raw + [Tab('24-Oct-2025')] + companions, 'Screener')), expected)
+        self.assertEqual(self.history(File(companions + raw + [Tab('24-Oct-2025')], 'Screener')), expected)
+
+    def test_main_anniversary_leap_and_unknown_dates(self):
+        tabs = [Tab('28-Feb-2024'), Tab('29-Feb-2024'), Tab('1-Mar-2024')]
+        self.assertEqual(self.history(File(tabs, 'Screener'), date(2025, 2, 28)), ['1-Mar-2024-ticker'])
+        for title in ['V2 Ranked', 'Main Ranked archive', '31-Feb-2026', '25-Oct-2026']:
+            with self.subTest(title=title), self.assertRaises(ValueError):
+                self.history(File([Tab(title)], 'Screener'))
+
+    def test_main_insertion_requires_correct_kind_and_ranked_first(self):
+        self.assertEqual(output_tab_options(File([Tab('Main Ranked')], 'Screener'), 'alpha'), {'index': 1})
+        self.assertEqual(output_tab_options(File([Tab('Main Ranked')], 'Screener'), 'beta'), {})
+        self.assertEqual(output_tab_options(File([Tab('old'), Tab('Main Ranked')], 'Screener'), 'alpha'), {})
+        self.assertEqual(output_tab_options(File([Tab('Main Ranked')], 'Other Screener'), 'alpha'), {})
+
+    def test_main_verified_output_preserves_values_and_is_idempotent(self):
+        file = File([Tab('Main Ranked'), Tab('17-Oct-2026'), Tab('Main Metrics')], 'Screener')
+        originals = copy.deepcopy([tab.values for tab in file.tabs])
+        sheet = types.SimpleNamespace(file=file)
+        data = {'ABC': {'Name': 'Example', 'NCAV Ratio': .5, 'EV/aFCF': 3,
+                       'Payback Rating': 2, '5Y average': .2, 'HQ Location': 'GB',
+                       'FV Upside Metric': 50, '5Y Price Metric': 25}}
+        receipt = write_verified(sheet, 'alpha', data, date(2026, 10, 24))
+        self.assertEqual([w.title for w in file.tabs], ['Main Ranked', '24-Oct-2026', '17-Oct-2026', 'Main Metrics'])
+        self.assertEqual([file.tabs[i].values for i in [0, 2, 3]], originals)
+        self.assertEqual(write_verified(sheet, 'alpha', data, date(2026, 10, 24)), receipt)
+        self.assertEqual(len(file.calls), 1)
 
     def test_unmoved_ranked_or_missing_ranked_keeps_default_insertion(self):
         for tabs in [[], [Tab('old')], [Tab('old'), Tab('V2 Ranked')]]:
@@ -123,3 +156,4 @@ class TabOrderTests(unittest.TestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
