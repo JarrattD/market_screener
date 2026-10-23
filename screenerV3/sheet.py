@@ -2,6 +2,7 @@ from datetime import datetime
 import gspread
 from time import sleep
 import re
+from screenerV3.tab_order import history_worksheets
 
 class Sheet:
     def __init__(self, sheet_path:str = "./service_account.json", file_name:str = 'Screener') -> None:
@@ -102,16 +103,12 @@ class Sheet:
     
     def get_all_previously_seen_tickers(self) -> list[str]:
         '''
-        Returns all tickers seen in the last year (52 weeks).
+        V2: tickers still within their 12-calendar-month appearance cooldown.
+        Other workbooks: retain the original first-52-tab history window.
         '''
         seen = []
         sheets = []
-        all_sheets = self.get_all_worksheets()
-        weeks = len(all_sheets)
-        if weeks > 52:
-            sheets = all_sheets[:52]
-        else:
-            sheets = all_sheets
+        sheets = history_worksheets(self.file, self.get_all_worksheets())
         try:
             for sheet in sheets:
                 seen.append(sheet.get_values("A2:A1000"))
@@ -121,3 +118,4 @@ class Sheet:
             self.get_all_previously_seen_tickers()
         
         return [i[0] for sub in seen for i in sub if i] 
+

@@ -25,6 +25,7 @@ jobs:
         with:
           python-version: '3.10'
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_v2_tab_order.py' -v
 
   run-screener:
     # PRs must never run production screeners or write to Google Sheets.
@@ -74,3 +75,4 @@ jobs:
           path: research_completion.json
           if-no-files-found: error
           retention-days: 90
+
