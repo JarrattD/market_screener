@@ -7,6 +7,9 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'screenerV3/appearance_cooldown.py'
+      - 'screenerV3/tab_order.py'
+      - 'tests/test_new_screen_cooldown.py'
       - 'negative_ev_fcf_screen.py'
       - 'screenerV3/negative_ev*'
       - 'screenerV3/quote_refresh.py'
@@ -28,6 +31,8 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_quote_refresh.py' -v
       - run: python -m unittest discover -s tests -p 'test_negative_ev*.py' -v
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_new_screen_cooldown.py' -v
+      - run: python -m unittest discover -s tests -p 'test_v2_tab_order.py' -v
   screen:
     if: github.event_name != 'pull_request' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     needs: test

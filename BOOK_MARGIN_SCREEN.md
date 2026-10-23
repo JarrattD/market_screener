@@ -46,3 +46,21 @@ Run an authorized live refresh:
     python book_margin_screen.py --service-account PATH --spreadsheet-id VERIFIED_PRIVATE_SHEET_ID
 
 Offline and CI tests are not proof of live provider completeness. A live run must finish and its dated Sheet receipt, row count and coverage must be read back before declaring it operationally verified.
+
+## Publication history and dashboard order
+
+Qualifying stocks are published only when their last verified appearance in this
+workbook is at least 12 calendar months old. The exact anniversary is eligible;
+29 February anniversaries clamp to 28 February in non-leap years. Other screens,
+dashboard refreshes, audit records, and incomplete/manual tabs do not count as
+appearances. The raw financial criteria and assessments are unchanged.
+
+Coverage reports `qualifying_rows_before_cooldown`, `cooldown_suppressed_rows`,
+and published `matched_rows` separately. The full qualifying assessments and
+input records remain private in the existing audit and Inputs tabs. Prior results
+are immutable; historical completed rows and companion hashes/seals are verified
+before they can suppress a new publication. Same-day verified reruns are idempotent.
+
+When this workbook's Ranked dashboard is first, a new dated result is inserted
+immediately beside it. Companion dashboards and existing manual tabs are not
+rewritten by the screener. The existing schedule and destination are unchanged.

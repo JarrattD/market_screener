@@ -15,6 +15,12 @@ MAIN_COMPANION_TABS = frozenset({
 COMPANION_TABS = {'V2 Screener': V2_COMPANION_TABS, 'Screener': MAIN_COMPANION_TABS}
 
 
+def appearance_eligible_on(run_date):
+    """The exact 12-calendar-month anniversary, clamped for leap day."""
+    return date(run_date.year + 1, run_date.month,
+                min(run_date.day, monthrange(run_date.year + 1, run_date.month)[1]))
+
+
 def history_worksheets(file, worksheets, as_of=None):
     """Keep main and V2 appearances on cooldown until their 12-month anniversary.
 
@@ -46,8 +52,7 @@ def history_worksheets(file, worksheets, as_of=None):
             raise ValueError(f'{workbook_title} history has an invalid run date: {worksheet.title!r}') from error
         if run_date > as_of:
             raise ValueError(f'{workbook_title} history has a future run date: {worksheet.title!r}')
-        eligible_on = date(run_date.year + 1, run_date.month,
-                           min(run_date.day, monthrange(run_date.year + 1, run_date.month)[1]))
+        eligible_on = appearance_eligible_on(run_date)
         if as_of < eligible_on:
             selected.append(worksheet)
     return selected
@@ -56,11 +61,12 @@ def history_worksheets(file, worksheets, as_of=None):
 def output_tab_options(file, kind):
     """Insert after Ranked only when it is already the first tab in its workbook."""
     ranked_title = {('beta', 'V2 Screener'): 'V2 Ranked',
-                    ('alpha', 'Screener'): 'Main Ranked'}.get(
+                    ('alpha', 'Screener'): 'Main Ranked',
+                    ('book-margin', 'Low Book Value & High Gross Margin Screener'): 'Book Margin Ranked',
+                    ('negative-ev-fcf', 'Negative EV & Positive 5Y FCF Screener'): 'Negative EV Ranked'}.get(
                         (kind, getattr(file, 'title', None)))
     if ranked_title is not None:
         worksheets = file.worksheets()
         if worksheets and worksheets[0].title == ranked_title:
             return {'index': 1}
     return {}
-

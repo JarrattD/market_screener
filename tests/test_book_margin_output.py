@@ -23,11 +23,12 @@ class Tab:
 
 class Sheet:
     def __init__(self): self.tabs={}
+    def worksheets(self): return list(self.tabs.values())
     def worksheet(self, title):
         if title not in self.tabs: raise MissingSheet()
         return self.tabs[title]
     def add_worksheet(self, title, rows, cols):
-        self.tabs[title]=Tab(); return self.tabs[title]
+        self.tabs[title]=Tab(); self.tabs[title].title=title; return self.tabs[title]
 
 class OutputTests(unittest.TestCase):
     def test_conflicting_publish_cannot_corrupt_completed_companions(self):
@@ -89,4 +90,3 @@ class OutputTests(unittest.TestCase):
             with self.assertRaises(ValueError): write_matrix(self.sheet,'test',[['right']])
 
 if __name__=='__main__': unittest.main()
-

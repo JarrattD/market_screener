@@ -156,3 +156,21 @@ Provider references checked 2026-10-19:
 - https://site.financialmodelingprep.com/developer/docs/stable/cashflow-statements-ttm
 - https://site.financialmodelingprep.com/developer/docs/stable/balance-sheet-statement
 - https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+
+## Publication history and dashboard order
+
+Qualifying stocks are published only when their last verified appearance in this
+workbook is at least 12 calendar months old. The exact anniversary is eligible;
+29 February anniversaries clamp to 28 February in non-leap years. Other screens,
+dashboard refreshes, audit records, and incomplete/manual tabs do not count as
+appearances. The raw financial criteria and assessments are unchanged.
+
+Coverage reports `qualifying_rows_before_cooldown`, `cooldown_suppressed_rows`,
+and published `matched_rows` separately. The full qualifying assessments and
+input records remain private in the existing audit and Inputs tabs. Prior results
+are immutable; historical completed rows and companion hashes/seals are verified
+before they can suppress a new publication. Same-day verified reruns are idempotent.
+
+When this workbook's Ranked dashboard is first, a new dated result is inserted
+immediately beside it. Companion dashboards and existing manual tabs are not
+rewritten by the screener. The existing schedule and destination are unchanged.

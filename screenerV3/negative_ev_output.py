@@ -3,8 +3,11 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
+from screenerV3.tab_order import output_tab_options
+from screenerV3.appearance_cooldown import filter_appearances
 
 TITLE = "Negative EV & Positive 5Y FCF Screener"
 PREFIX = "negative-ev-fcf-v1:"
@@ -58,7 +61,7 @@ def verified_seal(tab, rows, width):
         raise ValueError("Companion seal content differs")
 
 
-def write_matrix(sheet, title, rows, overwrite=False):
+def write_matrix(sheet, title, rows, overwrite=False, tab_options=None):
     import gspread
     rows = strings(rows)
     width = max(map(len, rows))
@@ -66,7 +69,7 @@ def write_matrix(sheet, title, rows, overwrite=False):
     try:
         tab = sheet.worksheet(title)
     except gspread.WorksheetNotFound:
-        tab = sheet.add_worksheet(title=title, rows=max(len(rows), 100), cols=max(width, 10))
+        tab = sheet.add_worksheet(title=title, rows=max(len(rows), 100), cols=max(width, 10), **(tab_options or {}))
         tab.update_note("A1", STAGING + RUN_OWNER)
     else:
         if not overwrite:
@@ -102,7 +105,14 @@ def open_destination(path, spreadsheet_id):
     return sheet
 
 
-def resume_complete(sheet, batch_date, config):
+def resume_complete(sheet, batch_date, config, *, historical=False):
+    """Verify a batch; historical mode keeps its criteria hash as provenance.
+
+    Coverage stores sorted Criteria JSON, so the original config key order
+    used by the legacy hash cannot be recovered. Historical data and criteria
+    remain bound by the verified coverage hash; current-run resumes still
+    require exact config hash equality.
+    """
     import gspread
     title = f"{batch_date.day}-{batch_date.strftime('%b')}-{batch_date.year}"
     try:
@@ -115,8 +125,11 @@ def resume_complete(sheet, batch_date, config):
     receipt = json.loads(note[len(PREFIX):])
     actual = tab.get_all_values()
     width = len(actual[0]) if actual else 0
-    if (receipt.get("batch_date") != batch_date.isoformat()
-            or receipt.get("criteria_hash") != stable_hash(config)
+    if (receipt.get("status") not in ("complete", "complete_with_unresolved")
+            or receipt.get("tab_id") != tab.id
+            or receipt.get("batch_date") != batch_date.isoformat()
+            or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("criteria_hash", "")))
+            or (not historical and receipt.get("criteria_hash") != stable_hash(config))
             or stable_hash(pad(actual, width)) != receipt.get("content_hash")):
         raise ValueError("Existing completed batch failed verification")
     coverage_tab = sheet.worksheet("Coverage " + title)
@@ -137,6 +150,8 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
     import gspread
     title = f"{batch_date.day}-{batch_date.strftime('%b')}-{batch_date.year}"
     config_hash = stable_hash(config)
+    rows, coverage = filter_appearances(sheet, batch_date, rows, coverage,
+                                        PREFIX, resume_complete)
     # A completed receipt is checked BEFORE mutating audit or companion tabs.
     # This also protects a second invocation that started before the first
     # invocation finished and therefore did not see its initial checkpoint.
@@ -163,7 +178,8 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
                       ["Latest audit", "Latest assessment audit"],
                       ["Limitations", "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."]]
     coverage_tab = write_matrix(sheet, "Coverage " + title, coverage_rows)
-    tab = write_matrix(sheet, title, rows)
+    tab = write_matrix(sheet, title, rows,
+                       tab_options=output_tab_options(sheet, "negative-ev-fcf"))
     # Companion tables become immutable before the final completion marker.
     seal(coverage_tab)
     if inputs_tab is not None:
@@ -179,4 +195,3 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
     if tab.get_note("A1") != PREFIX + json.dumps(receipt, sort_keys=True):
         raise ValueError("Checkpoint verification failed")
     return receipt
-
