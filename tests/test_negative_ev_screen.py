@@ -202,7 +202,7 @@ class DestinationTests(unittest.TestCase):
         self.assertIn("github.event_name != 'pull_request'", production)
         self.assertIn("github.event_name == 'schedule'", production)
         self.assertIn("github.event_name == 'workflow_dispatch'", production)
-        self.assertIn("needs: test", production)
+        self.assertIn("needs: [test, wait-for-main]", production)
         self.assertIn("group: production-screener", production)
         self.assertIn("cancel-in-progress: false", production)
         self.assertIn("queue: max", production)
