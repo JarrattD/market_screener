@@ -17,7 +17,10 @@ class FMPTransportError(RuntimeError):
 
     def __init__(self, reason, status=None):
         self.reason, self.status = reason, status
-        super().__init__(reason)
+        # A numeric status is safe diagnostic context; never log response bodies
+        # or URLs (which can contain the API key).
+        status_text = f" (HTTP {status})" if type(status) is int and 100 <= status <= 599 else ""
+        super().__init__(reason + status_text)
 
 
 class Handler:
@@ -168,7 +171,24 @@ class Handler:
         raise AssertionError('unreachable')
 
     async def get_profile(self, session: aiohttp.ClientSession, ticker: str):
-        return await self._request(session, f'/api/v3/profile/{ticker}')
+        try:
+            return await self._request(session, f'/api/v3/profile/{ticker}')
+        except FMPTransportError as error:
+            # Legacy 1,000-symbol batches can exceed the provider's URI limit.
+            # Only an explicit 414 permits splitting: never reinterpret access,
+            # authentication, quota or other failures as missing stock data.
+            symbols = ticker.split(',')
+            if error.status != 414 or len(symbols) < 2:
+                raise
+            midpoint = len(symbols) // 2
+            # Sequential halves retain request/response order and the original
+            # worker bound. Every attempt still consumes the shared budget.
+            left = await self.get_profile(session, ','.join(symbols[:midpoint]))
+            right = await self.get_profile(session, ','.join(symbols[midpoint:]))
+            if not isinstance(left, list) or not isinstance(right, list):
+                raise FMPTransportError('invalid_profile_batch_shape')
+            # Do not expose partial results if either half failed.
+            return left + right
 
     async def get_historical(self, session: aiohttp.ClientSession, ticker: str):
         return await self._request(session, f'/api/v3/historical-price-full/{ticker}')
