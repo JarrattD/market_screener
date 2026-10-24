@@ -1,0 +1,57 @@
+name: Net Cash and High Margin Screen
+on:
+  schedule:
+    - cron: '0 3 * * 6'
+      timezone: Europe/London
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'screenerV3/net_cash*'
+      - 'net_cash_screen.py'
+      - 'tests/test_net_cash*'
+      - '.github/workflows/net-cash-screen.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - run: python -m unittest discover -s tests -p 'test_net_cash*.py' -v
+  screen:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency:
+      # Serialize against both old screeners to protect their shared FMP budget.
+      group: production-screener
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - name: Run the separate acquisition screen
+        env:
+          FMP_KEY: ${{ secrets.FMP_KEY }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: |
+          umask 077
+          mkdir -p private_screen_run
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          Path('private_screen_run/service_account.json').write_text(os.environ['SERVICE_ACCOUNT_JSON'])
+          PY
+          python net_cash_screen.py --service-account private_screen_run/service_account.json
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f private_screen_run/service_account.json
