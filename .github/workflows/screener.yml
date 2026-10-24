@@ -26,11 +26,18 @@ jobs:
           python-version: '3.10'
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
       - run: python -m unittest discover -s tests -p 'test_v2_tab_order.py' -v
+      - run: pip install aiohttp pandas python-dotenv gspread==6.0.1
+      - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
+      - run: python -m unittest discover -s tests -p 'test_performance_workflows.py' -v
+      - run: python -m unittest discover -s tests -p 'test_main_v2_transport.py' -v
 
   run-screener:
     # PRs must never run production screeners or write to Google Sheets.
     if: github.event_name != 'pull_request'
     needs: test-completion
+    env:
+      FMP_REQUESTS_PER_MINUTE: '1800'
+      FMP_CONCURRENCY: '30'
     concurrency:
       group: production-screener
       queue: max
@@ -62,6 +69,10 @@ jobs:
       - name: Set environment variables
         run: |
           echo "FMP_KEY=${{ secrets.FMP_KEY }}" >> $GITHUB_ENV
+
+      # Same group as both independent screens; never multiply the 1800/min budget.
+      - name: Preserve account-wide handoff spacing
+        run: sleep 61
 
       - name: Run Cloud Screener
         run: |

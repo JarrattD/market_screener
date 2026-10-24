@@ -7,6 +7,9 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'screenerV3/fmp_limits.py'
+      - 'tests/test_fmp_limits.py'
+      - 'tests/test_performance_workflows.py'
       - 'book_margin_screen.py'
       - 'screenerV3/book_margin*'
       - 'tests/test_book_margin*'
@@ -24,11 +27,16 @@ jobs:
       - run: pip install aiohttp gspread==6.0.1
       - run: python -m unittest discover -s tests -p 'test_book_margin*.py' -v
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
+      - run: python -m unittest discover -s tests -p 'test_performance_workflows.py' -v
   screen:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    env:
+      FMP_REQUESTS_PER_MINUTE: '1800'
+      FMP_CONCURRENCY: '30'
     concurrency:
       group: production-screener
       cancel-in-progress: false
@@ -39,6 +47,10 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install aiohttp gspread==6.0.1
+      # The concurrency group serializes all three production workflows.
+      # Drain the previous process's minute/profile-bulk window before a new budget.
+      - name: Preserve account-wide handoff spacing
+        run: sleep 61
       - name: Run separate ordinary-book and gross-margin screen
         env:
           FMP_KEY: ${{ secrets.FMP_KEY }}
