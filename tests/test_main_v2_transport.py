@@ -87,7 +87,7 @@ class MainTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_http200_quota_error_is_retried_and_exhaustion_fails_closed(self):
         handler = self.handler(retries=1)
         session = Session([Response({'Error Message': 'Limit Reach secret'}) for _ in range(2)])
-        with self.assertRaisesRegex(FMPTransportError, '^rate_limit_retries_exhausted$'):
+        with self.assertRaisesRegex(FMPTransportError, r'^rate_limit_retries_exhausted \(HTTP 429\)$'):
             await handler.get_profile(session, 'TEST')
         self.assertEqual(handler.limiter.cooldowns, [60.0, 60.0])
         self.assertEqual(handler.limiter.drains, 1)
@@ -98,7 +98,7 @@ class MainTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_auth_failure_does_not_retry_or_leak_body(self):
         for response in (Response({'Error Message': 'Invalid API key secret'}), Response(status=401)):
             handler = self.handler()
-            with self.assertRaisesRegex(FMPTransportError, '^authentication_failed$'):
+            with self.assertRaisesRegex(FMPTransportError, r'^authentication_failed \(HTTP 401\)$'):
                 await handler.get_profile(Session([response]), 'TEST')
             self.assertEqual(len(handler.limiter.calls), 1)
 
@@ -253,3 +253,172 @@ class MainResultParityTests(unittest.IsolatedAsyncioTestCase):
                 write.assert_not_called()
                 publish.assert_not_called()
                 self.assertFalse(manifest.exists())
+
+
+class ProfileURILengthRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def handler(self, **kwargs):
+        with patch.dict('os.environ', {'FMP_KEY': 'not-a-real-key'}):
+            return Handler(limiter=FakeLimiter(), **kwargs)
+
+    async def test_recursive_split_preserves_every_record_and_budgets_every_attempt(self):
+        handler = self.handler()
+        session = Session([
+            Response(status=414), Response(status=414),
+            Response([{'symbol': 'A'}]), Response([{'symbol': 'B'}]),
+            Response([{'symbol': 'C'}, {'symbol': 'D'}]),
+        ])
+        actual = await handler.get_profile(session, 'A,B,C,D')
+        self.assertEqual(actual, [{'symbol': s} for s in 'ABCD'])
+        self.assertEqual([url.rsplit('/', 1)[-1] for url, _ in session.calls],
+                         ['A,B,C,D', 'A,B', 'A', 'B', 'C,D'])
+        self.assertEqual(len(handler.limiter.calls), 5)
+        self.assertEqual(handler.limiter.cooldowns, [])
+
+    async def test_single_symbol_414_stops_without_recursive_retry(self):
+        handler = self.handler()
+        session = Session([Response(status=414)])
+        with self.assertRaisesRegex(FMPTransportError, r'^http_error \(HTTP 414\)$'):
+            await handler.get_profile(session, 'ONLY')
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual(len(handler.limiter.calls), 1)
+
+    async def test_other_client_errors_never_split_or_skip(self):
+        for status in (400, 401, 402, 403, 404, 405, 413, 422):
+            with self.subTest(status=status):
+                handler = self.handler()
+                session = Session([Response({'message': 'private body'}, status=status)])
+                with self.assertRaises(FMPTransportError) as caught:
+                    await handler.get_profile(session, 'A,B')
+                self.assertEqual(caught.exception.status, status)
+                self.assertIn(f'HTTP {status}', str(caught.exception))
+                self.assertNotIn('private', str(caught.exception))
+                self.assertEqual(len(session.calls), 1)
+
+    async def test_first_or_second_half_failure_cannot_return_partial_results(self):
+        for responses in (
+            [Response(status=414), Response(status=403)],
+            [Response(status=414), Response([{'symbol': 'A'}]), Response(status=403)],
+            [Response(status=414), Response(status=414)],
+        ):
+            with self.subTest(requests=len(responses)):
+                handler = self.handler()
+                session = Session(responses)
+                with self.assertRaises(FMPTransportError):
+                    await handler.get_profile(session, 'A,B')
+                self.assertEqual(len(session.calls), len(responses))
+                self.assertEqual(len(handler.limiter.calls), len(responses))
+
+    async def test_split_requires_valid_list_payloads(self):
+        for left, right in (({}, []), ([], {})):
+            handler = self.handler()
+            session = Session([Response(status=414), Response(left), Response(right)])
+            with self.assertRaisesRegex(FMPTransportError, '^invalid_profile_batch_shape$'):
+                await handler.get_profile(session, 'A,B')
+
+    async def test_quota_on_a_half_still_uses_shared_cooldown_not_splitting(self):
+        handler = self.handler(retries=1)
+        session = Session([Response(status=414),
+                           Response(status=429, headers={'Retry-After': '123'}),
+                           Response([{'symbol': 'A'}]), Response([{'symbol': 'B'}])])
+        self.assertEqual(await handler.get_profile(session, 'A,B'),
+                         [{'symbol': 'A'}, {'symbol': 'B'}])
+        self.assertEqual([url.rsplit('/', 1)[-1] for url, _ in session.calls],
+                         ['A,B', 'A', 'A', 'B'])
+        self.assertEqual(handler.limiter.cooldowns, [123.0])
+        self.assertEqual(len(handler.limiter.calls), 4)
+
+    async def test_non_profile_414_never_splits(self):
+        handler = self.handler()
+        session = Session([Response(status=414)])
+        with self.assertRaises(FMPTransportError):
+            await handler.get_historical(session, 'A,B')
+        self.assertEqual(len(session.calls), 1)
+
+    async def test_actual_universes_survive_simulated_uri_limit_without_loss_or_duplicates(self):
+        root = Path(__file__).resolve().parents[1]
+        for filename in ('cleaned_tickers.json', 'non_banking_tickers.json'):
+            symbols = [symbol for group in json.loads((root / 'data' / filename).read_text()).values()
+                       for symbol in group]
+            handler = self.handler(workers=30)
+            class LengthLimitedSession:
+                calls, rejected = 0, 0
+                def get(self, url, **kwargs):
+                    self.calls += 1
+                    # A synthetic key only; no production credentials or network.
+                    length = len(url.encode('utf-8')) + len('?apikey=') + 32
+                    if length > 8192:
+                        self.rejected += 1
+                        return Response(status=414)
+                    return Response([{'symbol': s} for s in url.rsplit('/', 1)[-1].split(',')])
+            session = LengthLimitedSession()
+            batches = [','.join(symbols[i:i + 1000]) for i in range(0, len(symbols), 1000)]
+            actual = []
+            async for _, rows in handler.map_requests(session, handler.get_profile, batches):
+                actual.extend(row['symbol'] for row in rows)
+            with self.subTest(filename=filename):
+                self.assertEqual(actual, symbols)
+                self.assertGreater(session.rejected, 0)
+                self.assertEqual(session.calls, len(handler.limiter.calls))
+                self.assertLessEqual(session.calls, len(batches) + 2 * session.rejected)
+
+    async def test_split_failure_never_publishes_or_writes_partial_screen(self):
+        from cloud_screener import main
+        handler = self.handler()
+        session = Session([Response(status=414), Response([{'symbol': 'A'}]), Response(status=403)])
+        sheet = types.SimpleNamespace(file=types.SimpleNamespace(id='fake-sheet'))
+        async def run_async(debug=False):
+            await handler.get_profile(session, 'A,B')
+        screener = types.SimpleNamespace(sheet_client=sheet, run_async=run_async, results={})
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'completion.json'
+            with patch('cloud_screener.resume_verified', return_value=None), \
+                 patch('cloud_screener.write_verified') as write, \
+                 patch('cloud_screener.publish_manifest') as publish, \
+                 self.assertRaises(FMPTransportError):
+                await main(sheet_factory=lambda _: sheet,
+                           screener_factories={'alpha': lambda: screener},
+                           manifest_path=manifest)
+            write.assert_not_called()
+            publish.assert_not_called()
+            self.assertFalse(manifest.exists())
+
+    def test_status_diagnostics_never_include_invalid_status_objects(self):
+        for status in ('secret', 'https://example.invalid/?apikey=secret', True, 999):
+            self.assertEqual(str(FMPTransportError('http_error', status)), 'http_error')
+
+    async def test_recursive_splitting_never_multiplies_worker_concurrency(self):
+        handler = self.handler(workers=3)
+        class ConcurrentSession:
+            active, peak = 0, 0
+            def get(self, url, **kwargs):
+                owner = self
+                suffix = url.rsplit('/', 1)[-1]
+                class TrackedResponse(Response):
+                    async def __aenter__(self):
+                        owner.active += 1
+                        owner.peak = max(owner.peak, owner.active)
+                        await asyncio.sleep(.001)
+                        return self
+                    async def __aexit__(self, *args):
+                        owner.active -= 1
+                return TrackedResponse([{'symbol': suffix}], status=414 if ',' in suffix else 200)
+        session = ConcurrentSession()
+        batches = [f'A{i},B{i}' for i in range(7)]
+        rows = [pair async for pair in handler.map_requests(session, handler.get_profile, batches)]
+        self.assertEqual(rows, [(batch, [{'symbol': symbol} for symbol in batch.split(',')])
+                                for batch in batches])
+        self.assertEqual(session.peak, 3)
+        self.assertEqual(session.active, 0)
+        self.assertEqual(len(handler.limiter.calls), 21)
+
+    async def test_duplicate_symbols_and_successful_payload_order_are_unchanged(self):
+        handler = self.handler()
+        session = Session([Response(status=414), Response([{'symbol': 'A'}]),
+                           Response([{'symbol': 'B'}, {'symbol': 'A'}])])
+        # Preserve the provider's order within each half, not a set or a re-sort.
+        self.assertEqual(await handler.get_profile(session, 'A,A,B'),
+                         [{'symbol': 'A'}, {'symbol': 'B'}, {'symbol': 'A'}])
+        successful = [{'symbol': 'Z'}, {'symbol': 'A'}, {'symbol': 'Z'}]
+        session = Session([Response(successful)])
+        self.assertEqual(await handler.get_profile(session, 'Z,A,Z'), successful)
+        self.assertEqual(len(session.calls), 1)
