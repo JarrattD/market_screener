@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 import pandas as pd
 from .sheet import Sheet
 from .utilities import Handler
-from time import sleep
 import aiohttp
 import os
 
@@ -64,11 +63,6 @@ class MultiMetricScreener:
         
         return 0 # if ticker can't be found, return 0
     
-    def __check_reqs(self, requests_sent:int) -> None:
-        if requests_sent % 299 == 0:
-            print("Sleeping for 55 seconds to avoid hitting API limit.")
-            sleep(55)
-    
     def __clean_results(self, d:dict):
         ret = {}
         rem = 0
@@ -108,8 +102,8 @@ class MultiMetricScreener:
         requests_sent +=1
         print(f"Screening {starting_stocks} stocks...")
         async with aiohttp.ClientSession() as session:
-            for string in self.profile_fstr_arr:
-                res = await self.handler.get_profile(session, string)
+            async for string, res in self.handler.map_requests(
+                    session, self.handler.get_profile, self.profile_fstr_arr):
                 requests_sent += 1
                 if res is None:
                     continue
@@ -144,9 +138,9 @@ class MultiMetricScreener:
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase I complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
-                bs = await self.handler.get_balance_sheet(session, k)
+            async for k, bs in self.handler.map_requests(
+                    session, self.handler.get_balance_sheet, stk_res):
+                v = stk_res[k]
                 requests_sent += 1
                 try: 
                     current_assets = int(bs[0]["totalCurrentAssets"])
@@ -170,13 +164,10 @@ class MultiMetricScreener:
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase II complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
-                km = await self.handler.get_key_metrics(session, k)
-                requests_sent += 1
-                self.__check_reqs(requests_sent)
-                cf = await self.handler.get_cashflow(session, k)
-                requests_sent +=1
+            async for k, (km, cf) in self.handler.map_requests(
+                    session, self.handler.get_fundamentals, stk_res):
+                v = stk_res[k]
+                requests_sent += 2
                 try:
                     free_float = self.__find_float_from_ticker(k)
                     y_0_ttm = km[0]['freeCashFlowPerShareTTM'] * free_float
@@ -222,9 +213,9 @@ class MultiMetricScreener:
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase III complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
-                hist = await self.handler.get_historical(session, k)
+            async for k, hist in self.handler.map_requests(
+                    session, self.handler.get_historical, stk_res):
+                v = stk_res[k]
                 requests_sent += 1 
                 try:
                     five_year_max = round(max([i['close'] for i in hist['historical']]), 2)

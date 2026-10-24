@@ -38,6 +38,8 @@ from urllib.parse import quote
 
 import aiohttp
 
+from .fmp_limits import configured_concurrency, get_request_limiter
+
 
 BASE_URL = "https://financialmodelingprep.com"
 UTC = timezone.utc
@@ -119,28 +121,6 @@ class FMPError(RuntimeError):
 
 class FMPAuthenticationError(FMPError):
     pass
-
-
-class RateLimiter:
-    """One shared, paced limiter, including retries and all endpoint families."""
-
-    def __init__(self, requests_per_minute: float = 280):
-        if not 0 < requests_per_minute <= 280:
-            raise ValueError("requests_per_minute must be above zero and at most 280")
-        self.interval = 60.0 / requests_per_minute
-        self._next = 0.0
-        self._lock = asyncio.Lock()
-
-    async def acquire(self) -> None:
-        async with self._lock:
-            delay = self._next - time.monotonic()
-            if delay > 0:
-                await asyncio.sleep(delay)
-            self._next = time.monotonic() + self.interval
-
-    async def cooldown(self, seconds: float) -> None:
-        async with self._lock:
-            self._next = max(self._next, time.monotonic() + seconds)
 
 
 def _timestamp(value: Any) -> datetime | None:
@@ -385,20 +365,20 @@ class FMPClient:
     provide a dummy key and mock ``_request`` without making network calls.
     """
 
-    def __init__(self, api_key: str | None = None, *, requests_per_minute: float = 280,
-                 concurrency: int = 10, retries: int = 5, max_fx_age_days: int = 7,
+    def __init__(self, api_key: str | None = None, *, requests_per_minute: float | None = None,
+                 concurrency: int | None = None, retries: int = 5, max_fx_age_days: int = 7,
                  use_profile_bulk: bool = True):
         self._api_key = api_key if api_key is not None else os.environ.get("FMP_KEY", "")
         if not self._api_key:
             raise FMPAuthenticationError("FMP_KEY_is_not_configured")
-        if concurrency < 1 or retries < 0 or max_fx_age_days < 1:
+        concurrency = configured_concurrency(concurrency)
+        if retries < 0 or max_fx_age_days < 1:
             raise ValueError("Invalid client configuration")
         self.concurrency = concurrency
         self.retries = retries
         self.max_fx_age_days = max_fx_age_days
         self.use_profile_bulk = use_profile_bulk
-        self.limiter = RateLimiter(requests_per_minute)
-        self.bulk_limiter = RateLimiter(1)
+        self.limiter = get_request_limiter(requests_per_minute)
         self._semaphore = asyncio.Semaphore(concurrency)
         self._session: aiohttp.ClientSession | None = None
         self._fatal: FMPError | None = None
@@ -419,9 +399,12 @@ class FMPClient:
         return self
 
     async def __aexit__(self, *_: Any) -> None:
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
+        try:
+            await self.limiter.wait_for_cooldown()
+        finally:
+            if self._session is not None:
+                await self._session.close()
+                self._session = None
 
     async def _request(self, path: str, params: dict[str, Any] | None = None,
                        *, csv_response: bool = False) -> list[dict[str, Any]]:
@@ -435,9 +418,7 @@ class FMPClient:
             retry_after = None
             try:
                 async with self._semaphore:
-                    if csv_response:
-                        await self.bulk_limiter.acquire()
-                    await self.limiter.acquire()
+                    await self.limiter.acquire(path, bulk=csv_response)
                     if self._fatal:
                         raise self._fatal
                     self.metrics["http_requests"] += 1
@@ -475,16 +456,17 @@ class FMPClient:
                 if exc.status != 429 and not (exc.status is not None and exc.status >= 500):
                     raise
                 error = exc
+            delay = _retry_delay(retry_after, attempt + 1)
+            if error.status == 429:
+                await self.limiter.cooldown(max(60.0, delay))
             if attempt == self.retries:
                 if error.status == 429:
                     # Avoid thousands more requests after a run-wide quota block.
                     self._fatal = FMPError("rate_limit_retries_exhausted", 429)
+                    await self.limiter.wait_for_cooldown()
                     raise self._fatal
                 raise FMPError(error.reason + "_retries_exhausted", error.status)
-            delay = _retry_delay(retry_after, attempt + 1)
-            if error.status == 429:
-                await self.limiter.cooldown(max(60.0, delay))
-            else:
+            if error.status != 429:
                 await asyncio.sleep(delay)
         raise AssertionError("unreachable")
 

@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 from .sheet import Sheet
 from .utilities import Handler
 import pandas as pd
-from time import sleep
 import aiohttp
 import os
 
@@ -76,11 +75,6 @@ class PaybackScreener:
         
         return request_strings
     
-    def __check_reqs(self, requests_sent:int) -> None:
-        if requests_sent % 299 == 0:
-            print("Sleeping for 55 seconds to avoid hitting API limit.")
-            sleep(55)
-    
     def __find_float_from_ticker(self, ticker) -> int:
         """
         Finds the float (outstanding shares) for a given ticker.
@@ -110,8 +104,8 @@ class PaybackScreener:
         starting_stocks = self.__get_ticker_count()
         print(f"Screening {starting_stocks} stocks...")
         async with aiohttp.ClientSession() as session: 
-            for string in self.profile_fstr_arr:
-                res = await self.handler.get_profile(session, string)
+            async for string, res in self.handler.map_requests(
+                    session, self.handler.get_profile, self.profile_fstr_arr):
                 requests_sent += 1
                 if res is None:
                     continue
@@ -146,9 +140,9 @@ class PaybackScreener:
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase I complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
-                cf = await self.handler.get_cashflow(session, k)
+            async for k, cf in self.handler.map_requests(
+                    session, self.handler.get_cashflow, stk_res):
+                v = stk_res[k]
                 requests_sent += 1
                 try:
                     if v['Has Dividends or Buybacks'] < 1:
@@ -180,9 +174,9 @@ class PaybackScreener:
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase II complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
             issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
-                bs = await self.handler.get_balance_sheet(session, k)
+            async for k, bs in self.handler.map_requests(
+                    session, self.handler.get_balance_sheet, stk_res):
+                v = stk_res[k]
                 requests_sent += 1
                 try:
                     net_debt = int(bs[0]["netDebt"])
@@ -208,9 +202,9 @@ class PaybackScreener:
             print(f"Phase III complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
 
             issues = []
-            for k, v in stk_res.items():
-                self.__check_reqs(requests_sent)
-                hist = await self.handler.get_historical(session, k)
+            async for k, hist in self.handler.map_requests(
+                    session, self.handler.get_historical, stk_res):
+                v = stk_res[k]
                 requests_sent += 1 
                 try:
                     five_year_max = round(max([i['close'] for i in hist['historical']]), 2)
@@ -241,15 +235,15 @@ class PaybackScreener:
             
             starting_stocks = starting_stocks-len(issues)
             print(f"Phase V complete.\n{len(issues)} stocks removed.\n{starting_stocks} remaining.") if debug else None
-            self.__check_reqs(requests_sent)
+
             self.floats = await self.handler.get_floats()
             requests_sent +=1
 
-            for k, v in stk_res.items():
+            async for k, key_metrics_ttm in self.handler.map_requests(
+                    session, self.handler.get_key_metrics, stk_res):
+                v = stk_res[k]
+                requests_sent += 1
                 try:
-                    self.__check_reqs(requests_sent)
-                    key_metrics_ttm = await self.handler.get_key_metrics(session, k)
-                    requests_sent += 1
                     free_float = self.__find_float_from_ticker(k)
                     y_0_ttm = key_metrics_ttm[0]['freeCashFlowPerShareTTM'] * free_float
                     total = y_0_ttm + sum(v['fcfSum'])

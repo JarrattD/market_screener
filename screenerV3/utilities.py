@@ -1,15 +1,63 @@
+import asyncio
 import aiohttp
+from itertools import islice
+from typing import TYPE_CHECKING
 from dotenv import load_dotenv
 import os
 import json
 import pandas as pd
-from screener.Sheet import Sheet
+from .fmp_limits import get_request_limiter, retry_delay, configured_concurrency
+if TYPE_CHECKING:
+    from .sheet import Sheet
 
 load_dotenv()
 
+class FMPTransportError(RuntimeError):
+    """Sanitized transport failure; never includes a URL, key, or response body."""
+
+    def __init__(self, reason, status=None):
+        self.reason, self.status = reason, status
+        super().__init__(reason)
+
+
 class Handler:
-    def __init__(self) -> None:
+    def __init__(self, *, workers: int | None = None, limiter=None, retries: int = 3) -> None:
+        if isinstance(retries, bool) or not isinstance(retries, int) or not 0 <= retries <= 5:
+            raise ValueError("retries must be an integer between 0 and 5")
         self.api_key = os.environ['FMP_KEY']
+        self.workers = configured_concurrency(workers)
+        self.limiter = limiter if limiter is not None else get_request_limiter()
+        self.retries = retries
+        self._fatal = None
+
+    async def map_requests(self, session, method, tickers):
+        """Fetch a bounded chunk concurrently, yield in original input order.
+
+        No financial logic runs concurrently. At most ``workers`` fetch results
+        (each may contain a metrics/cash-flow pair or a profile batch) are retained, and a failed request
+        cancels/joins the remaining chunk before propagating to the caller.
+        """
+        iterator = iter(tickers)
+        while batch := list(islice(iterator, self.workers)):
+            tasks = [asyncio.create_task(method(session, ticker)) for ticker in batch]
+            try:
+                responses = await asyncio.gather(*tasks)
+            except BaseException:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                # A sibling failure must not cancel the task retaining a long
+                # Retry-After and release the serialized production job early.
+                await self.limiter.wait_for_cooldown()
+                raise
+            for ticker, response in zip(batch, responses):
+                yield ticker, response
+
+    async def get_fundamentals(self, session, ticker):
+        # Retain each symbol's original key-metrics -> cash-flow request order.
+        metrics = await self.get_key_metrics(session, ticker)
+        cashflow = await self.get_cashflow(session, ticker)
+        return metrics, cashflow
     
     def __read_json_file(self, file_path) -> dict[str:list]:
             """
@@ -25,7 +73,7 @@ class Handler:
                 data = json.load(file)
             return data
     
-    def process_tickers(self, sheet_client:Sheet, path: str = None) -> dict[str:list]:
+    def process_tickers(self, sheet_client: "Sheet", path: str = None) -> dict[str:list]:
         """
         Processes tickers from a JSON file.
 
@@ -48,66 +96,99 @@ class Handler:
         print(f"{removed} tickers removed for being screened within the passed year.")
         return ret
     
-    async def get_profile(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={self.api_key}') as response:
-            try:
-                return await response.json()
-            except Exception as e:
-                pass
-    
-    async def get_historical(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?apikey={self.api_key}') as response:
-            try:
-                return await response.json()# if response.status == 200 else print("Hit API limit. Waiting 55 seconds.") and sleep(55)
-            except Exception as e:
-                pass
-    
-    async def get_balance_sheet(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/balance-sheet-statement/{ticker}?period=quarter&limit=5&apikey={self.api_key}') as response:
-            try:
-                return await response.json()# if response.status == 200 else print("Hit API limit. Waiting 55 seconds.") and sleep(55)
-            except Exception as e:
-                pass
-    
-    async def get_cashflow(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        async with session.get(f'https://financialmodelingprep.com/api/v3/cash-flow-statement/{ticker}?period=annual&limit=5&apikey={self.api_key}') as response:
-            try:
-                return await response.json()# if response.status == 200 else print("Hit API limit. Waiting 55 seconds.") and sleep(55)
-            except Exception as e:
-                pass
+    async def _raise_if_fatal(self):
+        if self._fatal is not None:
+            if self._fatal.status == 429:
+                await self.limiter.wait_for_cooldown()
+            raise self._fatal
 
-    async def get_key_metrics(self, session: aiohttp.ClientSession, ticker: str) -> str:
-        """
-        Retrieves the key metrics TTM (Trailing Twelve Months) for a given ticker.
-
-        Parameters:
-        - `session` (aiohttp.ClientSession): The aiohttp session to use for making requests.
-        - `ticker` (str): The stock ticker symbol.
-
-        Returns:
-        - `str`: The key metrics TTM data in JSON format.
-        """
-        async with session.get(f'https://financialmodelingprep.com/api/v3/key-metrics-ttm/{ticker}?period=quarter&apikey={self.api_key}') as response:
+    async def _request(self, session, path, params=None, *, bulk=False):
+        request_params = dict(params or {})
+        request_params['apikey'] = self.api_key
+        for attempt in range(self.retries + 1):
+            await self._raise_if_fatal()
+            retry_after = None
             try:
-                return await response.json()
-            except Exception as e:
-                pass
-    
-    async def get_floats(self) -> None:
-        """
-        Retrieves float data for all stocks.
+                # Every HTTP attempt, including retries and floats, is budgeted.
+                await self.limiter.acquire(path, bulk=bulk)
+                await self._raise_if_fatal()
+                async with session.get(
+                        'https://financialmodelingprep.com' + path,
+                        params=request_params, allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(total=300)) as response:
+                    status = response.status
+                    retry_after = response.headers.get('Retry-After')
+                    if status == 401:
+                        raise FMPTransportError('authentication_failed', status)
+                    if status == 429 or status >= 500:
+                        raise FMPTransportError('rate_limit' if status == 429 else 'provider_unavailable', status)
+                    if status >= 300:
+                        raise FMPTransportError('unexpected_redirect' if status < 400 else 'http_error', status)
+                    try:
+                        payload = await response.json()
+                    except (ValueError, aiohttp.ContentTypeError):
+                        raise FMPTransportError('invalid_response_format') from None
+                    if isinstance(payload, dict):
+                        # FMP can return quota/authentication errors with HTTP200.
+                        message = ' '.join(str(v) for k, v in payload.items()
+                                           if str(k).lower() in ('error', 'error message', 'message')).lower()
+                        if 'invalid api' in message or 'invalid key' in message:
+                            raise FMPTransportError('authentication_failed', 401)
+                        if any(term in message for term in ('limit reach', 'rate limit', 'too many requests')):
+                            raise FMPTransportError('rate_limit', 429)
+                        if message:
+                            raise FMPTransportError('provider_error')
+                    if not isinstance(payload, (list, dict)):
+                        raise FMPTransportError('invalid_response_shape')
+                    return payload
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                error = FMPTransportError('network_or_timeout')
+            except FMPTransportError as error_:
+                # A sibling already declared a fatal failure; do not turn it
+                # back into a fresh retry/cooldown cycle.
+                await self._raise_if_fatal()
+                error = error_
+                if error.status == 401:
+                    self._fatal = error
+                    raise error from None
+                if error.status != 429 and not (error.status is not None and error.status >= 500):
+                    raise error from None
+            delay = retry_delay(retry_after, attempt + 1)
+            if error.status == 429:
+                # Stop every sibling on this account budget, including on the
+                # final rejected attempt, not just this task's own retry.
+                await self.limiter.cooldown(max(60.0, delay))
+            if attempt == self.retries:
+                self._fatal = FMPTransportError(error.reason + '_retries_exhausted', error.status)
+                if error.status == 429:
+                    await self.limiter.wait_for_cooldown()
+                raise self._fatal from None
+            if error.status != 429:
+                await asyncio.sleep(delay)
+        raise AssertionError('unreachable')
 
-        Returns:
-        - `None`
-        """
+    async def get_profile(self, session: aiohttp.ClientSession, ticker: str):
+        return await self._request(session, f'/api/v3/profile/{ticker}')
+
+    async def get_historical(self, session: aiohttp.ClientSession, ticker: str):
+        return await self._request(session, f'/api/v3/historical-price-full/{ticker}')
+
+    async def get_balance_sheet(self, session: aiohttp.ClientSession, ticker: str):
+        return await self._request(session, f'/api/v3/balance-sheet-statement/{ticker}',
+                                   {'period': 'quarter', 'limit': 5})
+
+    async def get_cashflow(self, session: aiohttp.ClientSession, ticker: str):
+        return await self._request(session, f'/api/v3/cash-flow-statement/{ticker}',
+                                   {'period': 'annual', 'limit': 5})
+
+    async def get_key_metrics(self, session: aiohttp.ClientSession, ticker: str):
+        return await self._request(session, f'/api/v3/key-metrics-ttm/{ticker}',
+                                   {'period': 'quarter'})
+
+    async def get_floats(self):
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"https://financialmodelingprep.com/api/v4/shares_float/all?apikey={self.api_key}") as response:
-                try:
-                    return await response.json()
-                except Exception as e:
-                    print(f"Error fetching floats: {e}")
-                    return None
-    
+            return await self._request(session, '/api/v4/shares_float/all', bulk=True)
+
     def create_xlsx(self, file_path:str, results:dict) -> None:
         """
         Creates an Excel file with the screening results.

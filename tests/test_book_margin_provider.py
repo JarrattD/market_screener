@@ -88,6 +88,7 @@ class DataPipelineTests(unittest.IsolatedAsyncioTestCase):
         client = FMPClient("dummy-test-key", retries=0)
         client._session = FakeSession([FakeResponse(429, "not logged")])
         client.limiter.acquire = AsyncMock()
+        client.limiter.wait_for_cooldown = AsyncMock()
         for _ in range(2):
             with self.assertRaises(FMPError) as caught:
                 await client._request("/stable/profile")
