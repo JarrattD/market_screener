@@ -7,6 +7,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'scripts/wait_for_main_screen.py'
+      - 'tests/test_screener_ordering.py'
       - 'screenerV3/fmp_limits.py'
       - 'tests/test_fmp_limits.py'
       - 'tests/test_performance_workflows.py'
@@ -29,9 +31,23 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
       - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
       - run: python -m unittest discover -s tests -p 'test_performance_workflows.py' -v
+      - run: python -m unittest discover -s tests -p 'test_screener_ordering.py' -v
+  # Do not acquire production-screener here: Main/V2 must be able to run first.
+  wait-for-main:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Wait for this batch's scheduled Main/V2 success
+        run: python scripts/wait_for_main_screen.py
   screen:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [test, wait-for-main]
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
