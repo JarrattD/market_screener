@@ -8,3 +8,4 @@
 /screener/*.json
 */service_account.json
 .DS_Store
+/private_screen_run/
