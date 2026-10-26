@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 REPOSITORY = 'JarrattD/market_screener'
 MAIN_WORKFLOW = '.github/workflows/screener.yml'
-CHILD_WORKFLOWS = frozenset({'.github/workflows/book-margin-screen.yml',
+CHILD_WORKFLOWS = frozenset({'.github/workflows/revenue-net-cash-screen.yml', '.github/workflows/book-margin-screen.yml',
                             '.github/workflows/negative-ev-fcf-screen.yml'})
 LONDON = ZoneInfo('Europe/London')
 POLL_SECONDS = 240
@@ -304,3 +304,4 @@ def main(env=None):
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

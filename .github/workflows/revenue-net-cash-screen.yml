@@ -1,0 +1,102 @@
+name: Low Revenue Multiple and Net Cash Screen
+on:
+  schedule:
+    - cron: '0 3 * * 6'
+      timezone: Europe/London
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/wait_for_main_screen.py'
+      - 'tests/test_screener_ordering.py'
+      - 'screenerV3/fmp_limits.py'
+      - 'tests/test_fmp_limits.py'
+      - 'tests/test_performance_workflows.py'
+      - 'revenue_net_cash_screen.py'
+      - 'screenerV3/revenue_net_cash*'
+      - 'screenerV3/book_margin_calculations.py'
+      - 'screenerV3/book_margin_data.py'
+      - 'screenerV3/negative_ev_data.py'
+      - 'screenerV3/negative_ev_provider.py'
+      - 'screenerV3/quote_refresh.py'
+      - 'screenerV3/data_freshness.py'
+      - 'tests/test_quote_refresh.py'
+      - 'tests/test_revenue_net_cash*'
+      - '.github/workflows/revenue-net-cash-screen.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      - run: python -m unittest discover -s tests -p 'test_quote_refresh.py' -v
+      - run: python -m unittest discover -s tests -p 'test_revenue_net_cash*.py' -v
+      - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
+      - run: python -m unittest discover -s tests -p 'test_performance_workflows.py' -v
+      - run: python -m unittest discover -s tests -p 'test_screener_ordering.py' -v
+  # Do not acquire production-screener here: Main/V2 must be able to run first.
+  wait-for-main:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Wait for this batch's scheduled Main/V2 success
+        run: python scripts/wait_for_main_screen.py
+  screen:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: [test, wait-for-main]
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      FMP_REQUESTS_PER_MINUTE: '1800'
+      FMP_CONCURRENCY: '30'
+    concurrency:
+      group: production-screener
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install aiohttp gspread==6.0.1
+      # The concurrency group serializes all production workflows.
+      # Drain the previous process's minute/profile-bulk window before a new budget.
+      - name: Preserve account-wide handoff spacing
+        run: sleep 61
+      - name: Run the separate revenue/net-cash screen
+        env:
+          FMP_KEY: ${{ secrets.FMP_KEY }}
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          REVENUE_NET_CASH_SHEET_ID: ${{ secrets.REVENUE_NET_CASH_SHEET_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$REVENUE_NET_CASH_SHEET_ID" || { echo "Private destination is not configured"; exit 1; }
+          umask 077
+          mkdir -p private_revenue_net_cash_run
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          value = json.loads(os.environ['SERVICE_ACCOUNT_JSON'])
+          Path('private_revenue_net_cash_run/service_account.json').write_text(json.dumps(value))
+          PY
+          python revenue_net_cash_screen.py --service-account private_revenue_net_cash_run/service_account.json --spreadsheet-id "$REVENUE_NET_CASH_SHEET_ID"
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f private_revenue_net_cash_run/service_account.json
+# No push/issue trigger and no public candidate artifacts. PRs execute only the
+# offline test job. Production requires the separately authorized Sheet grant,
+# private destination configuration, and approved dispatch or main deployment.
+
