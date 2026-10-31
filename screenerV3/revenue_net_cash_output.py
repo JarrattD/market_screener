@@ -9,7 +9,7 @@ import uuid
 
 from screenerV3.revenue_net_cash_cooldown import filter_appearances
 
-TITLE = "Low Revenue Multiple & Net Cash Screener"
+TITLE = "10% Rev & High GMs"
 PREFIX = "revenue-net-cash-v1:"
 STAGING = "revenue-net-cash-staging-v1:"
 SEALED = "revenue-net-cash-sealed-v1:"
@@ -212,3 +212,4 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
     if tab.get_note("A1") != PREFIX + json.dumps(receipt, sort_keys=True):
         raise ValueError("Checkpoint verification failed")
     return receipt
+
