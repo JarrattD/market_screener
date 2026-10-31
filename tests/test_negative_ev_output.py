@@ -10,7 +10,7 @@ class MissingSheet(Exception):
     pass
 
 class Tab:
-    def __init__(self): self.rows=[]; self.id=123; self.note=''
+    def __init__(self, title, ident): self.title=title; self.rows=[]; self.id=ident; self.note=''
     def update(self, range_name, values, value_input_option):
         offset=int(range_name[1:])-1
         self.rows[offset:offset+len(values)]=values
@@ -22,12 +22,19 @@ class Tab:
     def get_note(self, cell): return self.note
 
 class Sheet:
-    def __init__(self): self.tabs={}
+    def __init__(self):
+        self.tabs={}
+        self.add_worksheet('Negative EV Ranked', 100, 10)
+    def worksheets(self): return list(self.tabs.values())
     def worksheet(self, title):
         if title not in self.tabs: raise MissingSheet()
         return self.tabs[title]
-    def add_worksheet(self, title, rows, cols):
-        self.tabs[title]=Tab(); return self.tabs[title]
+    def add_worksheet(self, title, rows, cols, index=None):
+        tab=Tab(title, len(self.tabs)+123)
+        entries=list(self.tabs.items())
+        entries.insert(len(entries) if index is None else index, (title, tab))
+        self.tabs=dict(entries)
+        return tab
 
 class OutputTests(unittest.TestCase):
     def test_conflicting_publish_cannot_corrupt_completed_companions(self):
@@ -61,7 +68,7 @@ class OutputTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 publish(self.sheet, date(2026, 10, 24), [["Ticker"]], [["Ticker"]],
                         {"status": "complete"}, {"rule": 1})
-            self.assertEqual(set(self.sheet.tabs), {"24-Oct-2026"})
+            self.assertEqual(set(self.sheet.tabs), {"24-Oct-2026", "Negative EV Ranked"})
             self.assertEqual(tab.note, note)
 
     def setUp(self):
@@ -89,4 +96,5 @@ class OutputTests(unittest.TestCase):
             with self.assertRaises(ValueError): write_matrix(self.sheet,'test',[['right']])
 
 if __name__=='__main__': unittest.main()
+
 

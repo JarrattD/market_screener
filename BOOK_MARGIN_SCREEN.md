@@ -34,6 +34,49 @@ Production runs share the repository's production-screener concurrency group wit
 
 Only the explicitly configured private results Sheet with its expected exact title may be written. Successful runs append a dated results tab, dated coverage and inputs, and a latest assessment audit. Completion requires full read-back hashes. Completed dated output and sealed companions are immutable; a retry resumes only a matching verified batch. A failed or systemic-data run cannot publish a completed zero-result batch. A complete_with_unresolved batch explicitly does not claim full data coverage.
 
+## Twelve-calendar-month appearance cooldown
+
+After applying the unchanged financial criteria, publication suppresses an exact
+raw ticker if it appeared in this workbook less than twelve calendar months ago.
+The anniversary itself is eligible; February 29 clamps to February 28. All dated
+history is examined, independent of physical tab order or count (not the first
+52 tabs). Ticker aliases, exchange suffixes and case are not guessed equivalent.
+
+As in the approved Revenue Net Cash publisher, only completed, receipt-verified
+dated raw result tabs count. Ranked, Run Map, Metrics, Refresh Log, Read me,
+Configuration, Coverage, Inputs, latest assessment, audit, staging and provisional
+helpers do not. Unverified manual/unfinished dated tabs are not completed
+appearances. Read failures, malformed completed receipts, missing required
+companions, changed hashes or seals, invalid dates and future dates fail closed
+before any new writes. A genuine header-only completed result remains valid.
+
+Legacy completed receipts remain valid: the original CONFIG key order (including
+Negative EV's nested freshness policy) is frozen for historical reconstruction
+from sorted Coverage JSON, then checked against the original criteria hash.
+Historical appearances also require nonempty production origin/commit strings;
+companion seal owners must match the receipt's originating run. Local receipts
+without production origin remain eligible for same-day resume, not historical
+suppression. The exact result matrix consumed is re-hashed after reading, so a
+concurrent edit cannot silently change exclusions.
+Values and numeric types are not canonicalized. Current-run config hash checks,
+result/coverage/input hashes, companion seals and origin receipt fields are
+unchanged. Unknown historical criteria schemas fail closed.
+
+Coverage records `qualifying_rows_before_cooldown`, `cooldown_suppressed_rows`
+and `matched_rows` (the published count). Audit and sealed Inputs retain all
+financial qualifiers, including suppressed stocks; audit/input-only candidates
+never enter results. Zero published rows after cooldown is a valid completed
+batch. Same-day verified receipts resume without duplicates or self-suppression;
+already completed pre-change batches are never rewritten. New raw results go
+immediately after the existing Ranked tab, preserving all previous tab order and
+IDs. Ranked must already be leftmost or publication stops before writing.
+
+This is a prospective publication change only: no scheduled trigger, queue,
+credential, permission, workbook ID, financial predicate or existing output row
+schema changes. Deployment requires a separately authorized merge. Offline tests
+exercise both screens, old-protocol receipts, boundaries, more than 52 dated
+results, helper exclusion, failure/empty paths, ordering and idempotent resume.
+
 ## Tests and operation
 
 Run offline tests from the repository root:
@@ -46,3 +89,4 @@ Run an authorized live refresh:
     python book_margin_screen.py --service-account PATH --spreadsheet-id VERIFIED_PRIVATE_SHEET_ID
 
 Offline and CI tests are not proof of live provider completeness. A live run must finish and its dated Sheet receipt, row count and coverage must be read back before declaring it operationally verified.
+
