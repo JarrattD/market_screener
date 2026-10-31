@@ -15,11 +15,11 @@ The combined cash field is used once, otherwise both explicit components are req
 
 Quote cap is refreshed before use and separately reconciled against current outstanding shares, not float shares. Price units and cap currency are distinct. Provider-internal reconciliation within 1% does not constitute an independent issuer audit. Unverified ADR ratios or indicated multiple-share-class scope are unresolved. There are no ownership/holder endpoints or filters.
 
-Criteria update requested 30 October 2026 (effective when deployed to main): adds the strict USD cap; prior completed outputs retain their original criteria and are not rewritten.
+Criteria update deployed to main on 31 October 2026 (PR #62): adds the strict USD cap; prior completed outputs retain their original criteria and are not rewritten.
 
 ## Publication and ranking
 
-Only the configured private workbook with exact title `Low Revenue Multiple & Net Cash Screener` may be written. Each successful batch writes dated results, sealed `Coverage DATE` and `Inputs DATE`, and latest assessment audit. Result receipt prefix is `revenue-net-cash-v1:`; companion seal prefix is `revenue-net-cash-sealed-v1:`. All matrices are read back before completion, and completed dated batches are immutable. Criteria dictionaries use sorted-key JSON hashes; matrix hashes use exact string cells padded to their width. Receipts include workbook/tab identity, batch date, origin run/attempt, workflow ref, commit, row count and content/coverage/input hashes.
+Only the configured private workbook with exact title `10% Rev & High GMs` and exact configured spreadsheet ID may be written. Each successful batch writes dated results, sealed `Coverage DATE` and `Inputs DATE`, and latest assessment audit. Result receipt prefix is `revenue-net-cash-v1:`; companion seal prefix is `revenue-net-cash-sealed-v1:`. All matrices are read back before completion, and completed dated batches are immutable. Criteria dictionaries use sorted-key JSON hashes; matrix hashes use exact string cells padded to their width. Receipts include workbook/tab identity, batch date, origin run/attempt, workflow ref, commit, row count and content/coverage/input hashes.
 
 Only verified previously published appearances in this workbook suppress another appearance until their twelve-calendar-month anniversary (February 29 clamps to February 28). Helpers, inputs, coverage, audits and unverified manual tabs are not appearances. Same-batch resume does not suppress itself. Coverage records `qualifying_rows_before_cooldown`, `cooldown_suppressed_rows` and `matched_rows`. Assessments and sealed evidence retain all financial qualifiers. New raw results are placed immediately after `Revenue Net Cash Ranked`.
 

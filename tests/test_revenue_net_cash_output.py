@@ -143,9 +143,14 @@ class OutputTests(unittest.TestCase):
     def test_destination_exact_title_and_id(self):
         client = types.SimpleNamespace(open_by_key=lambda key: self.sheet)
         self.fake.service_account = lambda filename: client
+        self.assertEqual(out.TITLE, '10% Rev & High GMs')
         self.assertIs(out.open_destination('not-read', self.sheet.id), self.sheet)
         with self.assertRaises(ValueError): out.open_destination('not-read', 'other-id')
-        self.sheet.title = 'Other workbook'
-        with self.assertRaises(ValueError): out.open_destination('not-read', self.sheet.id)
+        for title in ('Other workbook', 'Low Revenue Multiple & Net Cash Screener',
+                      '10% Rev & High GMs ', '10% rev & high GMs'):
+            self.sheet.title = title
+            with self.subTest(title=title), self.assertRaises(ValueError):
+                out.open_destination('not-read', self.sheet.id)
 
 if __name__ == '__main__': unittest.main()
+
