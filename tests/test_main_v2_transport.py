@@ -9,6 +9,7 @@ import tempfile
 import types
 import unittest
 from contextlib import redirect_stdout
+from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -244,12 +245,13 @@ class MainResultParityTests(unittest.IsolatedAsyncioTestCase):
             with tempfile.TemporaryDirectory() as directory:
                 manifest = Path(directory) / 'completion.json'
                 with patch('cloud_screener.resume_verified', return_value=None), \
+                     patch('cloud_screener.london_batch_date', side_effect=AssertionError('Offline test must supply batch_date')), \
                      patch('cloud_screener.write_verified') as write, \
                      patch('cloud_screener.publish_manifest') as publish, \
                      redirect_stdout(io.StringIO()), self.assertRaises(FMPTransportError):
                     await main(sheet_factory=lambda _: instance.sheet_client,
                                screener_factories={'alpha': lambda: instance},
-                               manifest_path=manifest)
+                               manifest_path=manifest, batch_date=date(2026, 10, 31))
                 write.assert_not_called()
                 publish.assert_not_called()
                 self.assertFalse(manifest.exists())
@@ -372,12 +374,13 @@ class ProfileURILengthRecoveryTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             manifest = Path(directory) / 'completion.json'
             with patch('cloud_screener.resume_verified', return_value=None), \
+                 patch('cloud_screener.london_batch_date', side_effect=AssertionError('Offline test must supply batch_date')), \
                  patch('cloud_screener.write_verified') as write, \
                  patch('cloud_screener.publish_manifest') as publish, \
                  self.assertRaises(FMPTransportError):
                 await main(sheet_factory=lambda _: sheet,
                            screener_factories={'alpha': lambda: screener},
-                           manifest_path=manifest)
+                           manifest_path=manifest, batch_date=date(2026, 10, 31))
             write.assert_not_called()
             publish.assert_not_called()
             self.assertFalse(manifest.exists())
@@ -422,3 +425,4 @@ class ProfileURILengthRecoveryTests(unittest.IsolatedAsyncioTestCase):
         session = Session([Response(successful)])
         self.assertEqual(await handler.get_profile(session, 'Z,A,Z'), successful)
         self.assertEqual(len(session.calls), 1)
+
