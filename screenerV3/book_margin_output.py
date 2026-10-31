@@ -6,12 +6,29 @@ import os
 import time
 import uuid
 
+from screenerV3.appearance_cooldown import filter_appearances, restore_criteria_order
+
 TITLE = "Low Book Value & High Gross Margin Screener"
 PREFIX = "book-margin-v1:"
 STAGING = "book-margin-staging-v1:"
 SEALED = "book-margin-sealed-v1:"
 # Different CLI processes must never share the literal owner name "local".
 RUN_OWNER = os.getenv("GITHUB_RUN_ID") or "local-" + uuid.uuid4().hex
+
+# Frozen legacy CONFIG order: Coverage JSON is sorted, criteria_hash is not.
+CRITERIA_KEY_ORDER = (
+    'version',
+    'market_cap_usd_min_exclusive',
+    'market_cap_usd_max_inclusive',
+    'ordinary_book_equity_positive',
+    'price_to_ordinary_book_max_inclusive',
+    'latest_completed_annual_gross_margin_min_inclusive',
+    'revenue_positive',
+    'additional_investment_filters',
+    'balance',
+    'gross_margin',
+)
+CRITERIA_NESTED_ORDER = {}
 
 
 def stable_hash(rows):
@@ -49,16 +66,18 @@ def seal(tab):
         raise ValueError("Companion seal verification failed")
 
 
-def verified_seal(tab, rows, width):
+def verified_seal(tab, rows, width, expected_owner=None):
     note = tab.get_note("A1")
     if not note.startswith(SEALED):
         raise ValueError("Completed companion is not sealed")
     value = json.loads(note[len(SEALED):])
+    if expected_owner is not None and value.get("owner") != str(expected_owner):
+        raise ValueError("Completed companion owner differs from receipt origin")
     if value.get("content_hash") != stable_hash(pad(rows, width)):
         raise ValueError("Companion seal content differs")
 
 
-def write_matrix(sheet, title, rows, overwrite=False):
+def write_matrix(sheet, title, rows, overwrite=False, tab_options=None):
     import gspread
     rows = strings(rows)
     width = max(map(len, rows))
@@ -66,7 +85,7 @@ def write_matrix(sheet, title, rows, overwrite=False):
     try:
         tab = sheet.worksheet(title)
     except gspread.WorksheetNotFound:
-        tab = sheet.add_worksheet(title=title, rows=max(len(rows), 100), cols=max(width, 10))
+        tab = sheet.add_worksheet(title=title, rows=max(len(rows), 100), cols=max(width, 10), **(tab_options or {}))
         tab.update_note("A1", STAGING + RUN_OWNER)
     else:
         if not overwrite:
@@ -102,7 +121,14 @@ def open_destination(path, spreadsheet_id):
     return sheet
 
 
-def resume_complete(sheet, batch_date, config):
+def resume_complete(sheet, batch_date, config, *, historical=False):
+    """Verify immutable output, including legacy historical criteria hashes.
+
+    Historical Coverage JSON sorts keys; recover the frozen original producer
+    order before hashing. Current-run config equality is unchanged.
+    """
+    if historical:
+        config = restore_criteria_order(config, CRITERIA_KEY_ORDER, CRITERIA_NESTED_ORDER)
     import gspread
     title = f"{batch_date.day}-{batch_date.strftime('%b')}-{batch_date.year}"
     try:
@@ -113,9 +139,14 @@ def resume_complete(sheet, batch_date, config):
     if not note.startswith(PREFIX):
         return None
     receipt = json.loads(note[len(PREFIX):])
+    if historical and any(not isinstance(receipt.get(key), str) or not receipt[key].strip()
+                          for key in ("origin_run_id", "commit")):
+        raise ValueError("Historical appearance lacks production origin")
     actual = tab.get_all_values()
     width = len(actual[0]) if actual else 0
-    if (receipt.get("batch_date") != batch_date.isoformat()
+    if (receipt.get("status") not in ("complete", "complete_with_unresolved")
+            or receipt.get("tab_id") != tab.id
+            or receipt.get("batch_date") != batch_date.isoformat()
             or receipt.get("criteria_hash") != stable_hash(config)
             or stable_hash(pad(actual, width)) != receipt.get("content_hash")):
         raise ValueError("Existing completed batch failed verification")
@@ -123,13 +154,13 @@ def resume_complete(sheet, batch_date, config):
     coverage = coverage_tab.get_all_values()
     if stable_hash(pad(coverage, 2)) != receipt.get("coverage_hash"):
         raise ValueError("Existing coverage verification failed")
-    verified_seal(coverage_tab, coverage, 2)
+    verified_seal(coverage_tab, coverage, 2, receipt.get("origin_run_id"))
     if receipt.get("inputs_hash"):
         inputs_tab = sheet.worksheet("Inputs " + title)
         inputs = inputs_tab.get_all_values()
         if stable_hash(pad(inputs, 4)) != receipt["inputs_hash"]:
             raise ValueError("Existing inputs verification failed")
-        verified_seal(inputs_tab, inputs, 4)
+        verified_seal(inputs_tab, inputs, 4, receipt.get("origin_run_id"))
     return receipt
 
 
@@ -141,10 +172,18 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
     # This also protects a second invocation that started before the first
     # invocation finished and therefore did not see its initial checkpoint.
     existing = resume_complete(sheet, batch_date, config)
+    if existing and existing.get("content_hash") == stable_hash(strings(rows)):
+        # Also preserve pre-cooldown completed batches on same-day resume.
+        return existing
+    rows, coverage = filter_appearances(sheet, batch_date, rows, coverage,
+                                        PREFIX, resume_complete, stable_hash)
     if existing:
         if existing.get("content_hash") != stable_hash(strings(rows)):
             raise ValueError("Conflicting completed batch; no writes performed")
         return existing
+    tabs = sheet.worksheets()
+    if not tabs or tabs[0].title != "Book Margin Ranked":
+        raise ValueError("Expected Ranked as the first tab; no raw output written")
     dated_titles = [title, "Coverage " + title] + (["Inputs " + title] if records else [])
     for dated_title in dated_titles:
         try:
@@ -163,7 +202,7 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
                       ["Latest audit", "Latest assessment audit"],
                       ["Limitations", "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."]]
     coverage_tab = write_matrix(sheet, "Coverage " + title, coverage_rows)
-    tab = write_matrix(sheet, title, rows)
+    tab = write_matrix(sheet, title, rows, tab_options={"index": 1})
     # Companion tables become immutable before the final completion marker.
     seal(coverage_tab)
     if inputs_tab is not None:
@@ -179,4 +218,5 @@ def publish(sheet, batch_date, rows, audit, coverage, config, records=None):
     if tab.get_note("A1") != PREFIX + json.dumps(receipt, sort_keys=True):
         raise ValueError("Checkpoint verification failed")
     return receipt
+
 

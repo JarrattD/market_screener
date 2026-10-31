@@ -1,0 +1,340 @@
+{
+  "book_margin": {
+    "fixture_note": "Synthetic rows generated offline by unchanged publisher at ff577314; no private production data.",
+    "config": {
+      "version": 1,
+      "market_cap_usd_min_exclusive": 0,
+      "market_cap_usd_max_inclusive": 75000000,
+      "ordinary_book_equity_positive": true,
+      "price_to_ordinary_book_max_inclusive": "0.5",
+      "latest_completed_annual_gross_margin_min_inclusive": "0.30",
+      "revenue_positive": true,
+      "additional_investment_filters": [],
+      "balance": "Newest completed annual or interim",
+      "gross_margin": "Newest completed publicly filed FY; 5Y history is optional"
+    },
+    "criteria_hash": "b06476f9ff4ebea368a812c3f2eb08ac2c04f3077e03427ccab7cbaa392b6687",
+    "tabs": [
+      {
+        "title": "Inputs 24-Oct-2026",
+        "id": 102,
+        "rows": [
+          [
+            "Ticker",
+            "Record",
+            "JSON",
+            "UTC"
+          ],
+          [
+            "LEGACY24",
+            "input",
+            "{}",
+            "offline"
+          ]
+        ],
+        "note": "book-margin-sealed-v1:{\"content_hash\": \"7572aae6ffd9c661fd727578c6e13834ed01c83b15889400063ff13e48d2b4fe\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "Coverage 24-Oct-2026",
+        "id": 103,
+        "rows": [
+          [
+            "Field",
+            "Value"
+          ],
+          [
+            "status",
+            "complete"
+          ],
+          [
+            "matched_rows",
+            "1"
+          ],
+          [
+            "Batch date",
+            "2026-10-24"
+          ],
+          [
+            "Criteria",
+            "{\"additional_investment_filters\": [], \"balance\": \"Newest completed annual or interim\", \"gross_margin\": \"Newest completed publicly filed FY; 5Y history is optional\", \"latest_completed_annual_gross_margin_min_inclusive\": \"0.30\", \"market_cap_usd_max_inclusive\": 75000000, \"market_cap_usd_min_exclusive\": 0, \"ordinary_book_equity_positive\": true, \"price_to_ordinary_book_max_inclusive\": \"0.5\", \"revenue_positive\": true, \"version\": 1}"
+          ],
+          [
+            "Latest audit",
+            "Latest assessment audit"
+          ],
+          [
+            "Limitations",
+            "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."
+          ]
+        ],
+        "note": "book-margin-sealed-v1:{\"content_hash\": \"99c9bb3344d3c11111b543f1646d463f63567f6b6a561b052578902bc117cb13\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "24-Oct-2026",
+        "id": 104,
+        "rows": [
+          [
+            "Ticker",
+            "Name"
+          ],
+          [
+            "LEGACY24",
+            "Synthetic company"
+          ]
+        ],
+        "note": "book-margin-v1:{\"batch_date\": \"2026-10-24\", \"commit\": \"ff577314d7f24fe4ef501cd2f2a9fd0659ae034d\", \"content_hash\": \"fb3617239ce6990ee36385a050a349ce60655c00e455626456df0a9a5451295f\", \"coverage_hash\": \"99c9bb3344d3c11111b543f1646d463f63567f6b6a561b052578902bc117cb13\", \"criteria_hash\": \"b06476f9ff4ebea368a812c3f2eb08ac2c04f3077e03427ccab7cbaa392b6687\", \"inputs_hash\": \"7572aae6ffd9c661fd727578c6e13834ed01c83b15889400063ff13e48d2b4fe\", \"origin_run_id\": \"synthetic-offline-fixture\", \"status\": \"complete\", \"tab_id\": 104, \"verified_at\": \"2026-10-31T13:54:13.154998+00:00\"}"
+      },
+      {
+        "title": "Inputs 31-Oct-2026",
+        "id": 105,
+        "rows": [
+          [
+            "Ticker",
+            "Record",
+            "JSON",
+            "UTC"
+          ],
+          [
+            "LEGACY24",
+            "input",
+            "{}",
+            "offline"
+          ],
+          [
+            "LEGACY31",
+            "input",
+            "{}",
+            "offline"
+          ]
+        ],
+        "note": "book-margin-sealed-v1:{\"content_hash\": \"c9782765d2e5f0d593e55b28392c017ef81c397244c450c5f77f61a95044e9c0\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "Coverage 31-Oct-2026",
+        "id": 106,
+        "rows": [
+          [
+            "Field",
+            "Value"
+          ],
+          [
+            "status",
+            "complete"
+          ],
+          [
+            "matched_rows",
+            "2"
+          ],
+          [
+            "Batch date",
+            "2026-10-31"
+          ],
+          [
+            "Criteria",
+            "{\"additional_investment_filters\": [], \"balance\": \"Newest completed annual or interim\", \"gross_margin\": \"Newest completed publicly filed FY; 5Y history is optional\", \"latest_completed_annual_gross_margin_min_inclusive\": \"0.30\", \"market_cap_usd_max_inclusive\": 75000000, \"market_cap_usd_min_exclusive\": 0, \"ordinary_book_equity_positive\": true, \"price_to_ordinary_book_max_inclusive\": \"0.5\", \"revenue_positive\": true, \"version\": 1}"
+          ],
+          [
+            "Latest audit",
+            "Latest assessment audit"
+          ],
+          [
+            "Limitations",
+            "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."
+          ]
+        ],
+        "note": "book-margin-sealed-v1:{\"content_hash\": \"f59734344bb2133fd9642ec9c8ce269b923cfc009fedae3c47079459a9508bf6\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "31-Oct-2026",
+        "id": 107,
+        "rows": [
+          [
+            "Ticker",
+            "Name"
+          ],
+          [
+            "LEGACY24",
+            "Synthetic company"
+          ],
+          [
+            "LEGACY31",
+            "Synthetic company"
+          ]
+        ],
+        "note": "book-margin-v1:{\"batch_date\": \"2026-10-31\", \"commit\": \"ff577314d7f24fe4ef501cd2f2a9fd0659ae034d\", \"content_hash\": \"b1ff4b15ea90a992b782f0a1a39e4a8e33f7be4cdc0c3067b7c29690f284bfc4\", \"coverage_hash\": \"f59734344bb2133fd9642ec9c8ce269b923cfc009fedae3c47079459a9508bf6\", \"criteria_hash\": \"b06476f9ff4ebea368a812c3f2eb08ac2c04f3077e03427ccab7cbaa392b6687\", \"inputs_hash\": \"c9782765d2e5f0d593e55b28392c017ef81c397244c450c5f77f61a95044e9c0\", \"origin_run_id\": \"synthetic-offline-fixture\", \"status\": \"complete\", \"tab_id\": 107, \"verified_at\": \"2026-10-31T13:54:13.155150+00:00\"}"
+      }
+    ]
+  },
+  "negative_ev": {
+    "fixture_note": "Synthetic rows generated offline by unchanged publisher at ff577314; no private production data.",
+    "config": {
+      "version": "negative-ev-fcf-v2",
+      "data_freshness": {
+        "quote_max_age_days": 7,
+        "statement_max_age_calendar_months": 18,
+        "missing_or_stale": "unresolved, not rejected",
+        "version": 1
+      },
+      "enterprise_value": "market_cap_in_reporting_currency + total_debt - cash_and_short_term_investments",
+      "ev_strictly_below": "0",
+      "cumulative_reported_fcf_strictly_above": "0",
+      "fcf_window": "latest verified nonoverlapping five years; otherwise last five completed fiscal years",
+      "include_negative_periods": true,
+      "missing_data": "unresolved, never zero",
+      "market_cap_ceiling": null,
+      "gross_margin_filter": null,
+      "fcf_ratio_filter": null
+    },
+    "criteria_hash": "ae48e30771df653ee0daa799aaec3dedab6918cad97caf79b6173c0a5d206d39",
+    "tabs": [
+      {
+        "title": "Inputs 24-Oct-2026",
+        "id": 102,
+        "rows": [
+          [
+            "Ticker",
+            "Record",
+            "JSON",
+            "UTC"
+          ],
+          [
+            "LEGACY24",
+            "input",
+            "{}",
+            "offline"
+          ]
+        ],
+        "note": "negative-ev-sealed-v1:{\"content_hash\": \"7572aae6ffd9c661fd727578c6e13834ed01c83b15889400063ff13e48d2b4fe\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "Coverage 24-Oct-2026",
+        "id": 103,
+        "rows": [
+          [
+            "Field",
+            "Value"
+          ],
+          [
+            "status",
+            "complete"
+          ],
+          [
+            "matched_rows",
+            "1"
+          ],
+          [
+            "Batch date",
+            "2026-10-24"
+          ],
+          [
+            "Criteria",
+            "{\"cumulative_reported_fcf_strictly_above\": \"0\", \"data_freshness\": {\"missing_or_stale\": \"unresolved, not rejected\", \"quote_max_age_days\": 7, \"statement_max_age_calendar_months\": 18, \"version\": 1}, \"enterprise_value\": \"market_cap_in_reporting_currency + total_debt - cash_and_short_term_investments\", \"ev_strictly_below\": \"0\", \"fcf_ratio_filter\": null, \"fcf_window\": \"latest verified nonoverlapping five years; otherwise last five completed fiscal years\", \"gross_margin_filter\": null, \"include_negative_periods\": true, \"market_cap_ceiling\": null, \"missing_data\": \"unresolved, never zero\", \"version\": \"negative-ev-fcf-v2\"}"
+          ],
+          [
+            "Latest audit",
+            "Latest assessment audit"
+          ],
+          [
+            "Limitations",
+            "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."
+          ]
+        ],
+        "note": "negative-ev-sealed-v1:{\"content_hash\": \"3053bb0600fa463e4acb902f22713c7489e212be7ba0f94603cf5ecc7b4c2144\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "24-Oct-2026",
+        "id": 104,
+        "rows": [
+          [
+            "Ticker",
+            "Name"
+          ],
+          [
+            "LEGACY24",
+            "Synthetic company"
+          ]
+        ],
+        "note": "negative-ev-fcf-v1:{\"batch_date\": \"2026-10-24\", \"commit\": \"ff577314d7f24fe4ef501cd2f2a9fd0659ae034d\", \"content_hash\": \"fb3617239ce6990ee36385a050a349ce60655c00e455626456df0a9a5451295f\", \"coverage_hash\": \"3053bb0600fa463e4acb902f22713c7489e212be7ba0f94603cf5ecc7b4c2144\", \"criteria_hash\": \"ae48e30771df653ee0daa799aaec3dedab6918cad97caf79b6173c0a5d206d39\", \"inputs_hash\": \"7572aae6ffd9c661fd727578c6e13834ed01c83b15889400063ff13e48d2b4fe\", \"origin_run_id\": \"synthetic-offline-fixture\", \"status\": \"complete\", \"tab_id\": 104, \"verified_at\": \"2026-10-31T13:54:13.158697+00:00\"}"
+      },
+      {
+        "title": "Inputs 31-Oct-2026",
+        "id": 105,
+        "rows": [
+          [
+            "Ticker",
+            "Record",
+            "JSON",
+            "UTC"
+          ],
+          [
+            "LEGACY24",
+            "input",
+            "{}",
+            "offline"
+          ],
+          [
+            "LEGACY31",
+            "input",
+            "{}",
+            "offline"
+          ]
+        ],
+        "note": "negative-ev-sealed-v1:{\"content_hash\": \"c9782765d2e5f0d593e55b28392c017ef81c397244c450c5f77f61a95044e9c0\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "Coverage 31-Oct-2026",
+        "id": 106,
+        "rows": [
+          [
+            "Field",
+            "Value"
+          ],
+          [
+            "status",
+            "complete"
+          ],
+          [
+            "matched_rows",
+            "2"
+          ],
+          [
+            "Batch date",
+            "2026-10-31"
+          ],
+          [
+            "Criteria",
+            "{\"cumulative_reported_fcf_strictly_above\": \"0\", \"data_freshness\": {\"missing_or_stale\": \"unresolved, not rejected\", \"quote_max_age_days\": 7, \"statement_max_age_calendar_months\": 18, \"version\": 1}, \"enterprise_value\": \"market_cap_in_reporting_currency + total_debt - cash_and_short_term_investments\", \"ev_strictly_below\": \"0\", \"fcf_ratio_filter\": null, \"fcf_window\": \"latest verified nonoverlapping five years; otherwise last five completed fiscal years\", \"gross_margin_filter\": null, \"include_negative_periods\": true, \"market_cap_ceiling\": null, \"missing_data\": \"unresolved, never zero\", \"version\": \"negative-ev-fcf-v2\"}"
+          ],
+          [
+            "Latest audit",
+            "Latest assessment audit"
+          ],
+          [
+            "Limitations",
+            "FMP coverage only. Unresolved data are not failed criteria; no guarantee every global issuer is covered."
+          ]
+        ],
+        "note": "negative-ev-sealed-v1:{\"content_hash\": \"2497a06d93b06946616782a8bb4eca7ceee909b5b608d4f8670960ee3aa85cb5\", \"owner\": \"synthetic-offline-fixture\"}"
+      },
+      {
+        "title": "31-Oct-2026",
+        "id": 107,
+        "rows": [
+          [
+            "Ticker",
+            "Name"
+          ],
+          [
+            "LEGACY24",
+            "Synthetic company"
+          ],
+          [
+            "LEGACY31",
+            "Synthetic company"
+          ]
+        ],
+        "note": "negative-ev-fcf-v1:{\"batch_date\": \"2026-10-31\", \"commit\": \"ff577314d7f24fe4ef501cd2f2a9fd0659ae034d\", \"content_hash\": \"b1ff4b15ea90a992b782f0a1a39e4a8e33f7be4cdc0c3067b7c29690f284bfc4\", \"coverage_hash\": \"2497a06d93b06946616782a8bb4eca7ceee909b5b608d4f8670960ee3aa85cb5\", \"criteria_hash\": \"ae48e30771df653ee0daa799aaec3dedab6918cad97caf79b6173c0a5d206d39\", \"inputs_hash\": \"c9782765d2e5f0d593e55b28392c017ef81c397244c450c5f77f61a95044e9c0\", \"origin_run_id\": \"synthetic-offline-fixture\", \"status\": \"complete\", \"tab_id\": 107, \"verified_at\": \"2026-10-31T13:54:13.158847+00:00\"}"
+      }
+    ]
+  }
+}

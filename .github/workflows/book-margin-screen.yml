@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'screenerV3/appearance_cooldown.py'
+      - 'screenerV3/revenue_net_cash_cooldown.py'
+      - 'tests/appearance_cooldown_cases.py'
+      - 'tests/fixtures/appearance_cooldown_legacy.json'
       - 'scripts/wait_for_main_screen.py'
       - 'tests/test_screener_ordering.py'
       - 'screenerV3/fmp_limits.py'
@@ -84,3 +88,4 @@ jobs:
       - name: Remove temporary credentials
         if: always()
         run: rm -f private_screen_run/service_account.json
+

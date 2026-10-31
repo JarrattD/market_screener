@@ -11,7 +11,8 @@ There is no dependency on the unmerged net-cash-screen branch.
    strictly positive.
 
 No market-cap ceiling, gross-margin filter, country restriction, valuation
-multiple or previously-seen exclusion is added. Zero is not a passing boundary.
+multiple is added to the financial criteria. A separate publication-only
+appearance cooldown is described below. Zero is not a passing boundary.
 Loss-making periods are included in the cumulative sum. Missing values are not
 assumed zero. Funds, ETFs and non-equity securities are not operating stocks;
 unknown security eligibility is unresolved. The fresh worldwide provider
@@ -137,6 +138,49 @@ global scan has not yet been live-tested; a timeout is not completion and may
 require an approved longer-running environment or an equivalent-data
 acquisition optimization before operational sign-off.
 
+## Twelve-calendar-month appearance cooldown
+
+After applying the unchanged financial criteria, publication suppresses an exact
+raw ticker if it appeared in this workbook less than twelve calendar months ago.
+The anniversary itself is eligible; February 29 clamps to February 28. All dated
+history is examined, independent of physical tab order or count (not the first
+52 tabs). Ticker aliases, exchange suffixes and case are not guessed equivalent.
+
+As in the approved Revenue Net Cash publisher, only completed, receipt-verified
+dated raw result tabs count. Ranked, Run Map, Metrics, Refresh Log, Read me,
+Configuration, Coverage, Inputs, latest assessment, audit, staging and provisional
+helpers do not. Unverified manual/unfinished dated tabs are not completed
+appearances. Read failures, malformed completed receipts, missing required
+companions, changed hashes or seals, invalid dates and future dates fail closed
+before any new writes. A genuine header-only completed result remains valid.
+
+Legacy completed receipts remain valid: the original CONFIG key order (including
+Negative EV's nested freshness policy) is frozen for historical reconstruction
+from sorted Coverage JSON, then checked against the original criteria hash.
+Historical appearances also require nonempty production origin/commit strings;
+companion seal owners must match the receipt's originating run. Local receipts
+without production origin remain eligible for same-day resume, not historical
+suppression. The exact result matrix consumed is re-hashed after reading, so a
+concurrent edit cannot silently change exclusions.
+Values and numeric types are not canonicalized. Current-run config hash checks,
+result/coverage/input hashes, companion seals and origin receipt fields are
+unchanged. Unknown historical criteria schemas fail closed.
+
+Coverage records `qualifying_rows_before_cooldown`, `cooldown_suppressed_rows`
+and `matched_rows` (the published count). Audit and sealed Inputs retain all
+financial qualifiers, including suppressed stocks; audit/input-only candidates
+never enter results. Zero published rows after cooldown is a valid completed
+batch. Same-day verified receipts resume without duplicates or self-suppression;
+already completed pre-change batches are never rewritten. New raw results go
+immediately after the existing Ranked tab, preserving all previous tab order and
+IDs. Ranked must already be leftmost or publication stops before writing.
+
+This is a prospective publication change only: no scheduled trigger, queue,
+credential, permission, workbook ID, financial predicate or existing output row
+schema changes. Deployment requires a separately authorized merge. Offline tests
+exercise both screens, old-protocol receipts, boundaries, more than 52 dated
+results, helper exclusion, failure/empty paths, ordering and idempotent resume.
+
 ## Verification
 
 Offline new-screen tests:
@@ -156,3 +200,4 @@ Provider references checked 2026-10-19:
 - https://site.financialmodelingprep.com/developer/docs/stable/cashflow-statements-ttm
 - https://site.financialmodelingprep.com/developer/docs/stable/balance-sheet-statement
 - https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+
