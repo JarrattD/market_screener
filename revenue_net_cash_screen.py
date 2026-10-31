@@ -11,7 +11,7 @@ from screenerV3.book_margin_calculations import annual_margin
 from screenerV3.revenue_net_cash_calculations import assess_revenue, net_cash
 from screenerV3.revenue_net_cash_output import open_destination, publish, resume_complete
 
-CONFIG = {'version': 1, 'market_cap_to_latest_fy_revenue_max_inclusive': '0.10',
+CONFIG = {'version': 2, 'market_cap_usd_max_exclusive': '100000000', 'market_cap_to_latest_fy_revenue_max_inclusive': '0.10',
  'latest_fy_gross_margin_min_inclusive': '0.30', 'annual_revenue_positive': True,
  'net_cash_min_exclusive': '0', 'balance': 'newest completed annual or interim',
  'whole_issuer_market_cap_required': True, 'additional_financial_filters': [],
@@ -73,6 +73,7 @@ async def screen(client, sheet, batch_date=None):
     profiles.update(verified); issues.extend(more); health(client)
     currencies = {profiles[s].get('cap_currency') for s in candidates} | {incomes[s].latest.get('reportedCurrency') for s in candidates}
     currencies -= {None, ''}
+    if candidates: currencies.add('USD')
     rates, more = await client.fetch_fx(currencies) if currencies else ({}, [])
     issues.extend(more); health(client)
     revenue, survivors = {}, []
@@ -101,7 +102,7 @@ async def screen(client, sheet, batch_date=None):
             p.get('cap_amount'), p.get('cap_currency'), p.get('cap_currency_basis'), p.get('as_of'), r.get('fx_rate'), r.get('fx_as_of'),
             cash.get('cash_source'), p.get('security_identity','SYMBOL:'+symbol), '', assessed.isoformat(),
             'https://site.financialmodelingprep.com/financial-summary/'+symbol, 'FMP provider evidence; not independent issuer audit'])
-        record(symbol, 'match', 'Cap/revenue <=0.10; FY gross margin >=0.30; net cash >0')
+        record(symbol, 'match', 'Market cap <USD100000000; Cap/revenue <=0.10; FY gross margin >=0.30; net cash >0')
     unique, identity_col = {}, HEADERS.index('Security identity')
     for row in sorted(rows[1:], key=lambda r: (str(r[2]), r[0])):
         if row[identity_col] in unique: record(row[0], 'duplicate_listing', 'Verified same security as '+unique[row[identity_col]][0])
@@ -142,3 +143,4 @@ def main():
         print('Revenue/net-cash screen failed: '+type(error).__name__,file=sys.stderr); return 1
     print('Private revenue/net-cash batch verified'); return 0
 if __name__=='__main__': raise SystemExit(main())
+

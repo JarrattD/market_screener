@@ -131,15 +131,34 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r[0] for r in args[2][1:]], ['GOOD'])
         self.assertEqual(args[4]['status'], 'complete_with_unresolved')
 
-    async def test_no_cap_ceiling_and_no_positive_fcf_equity_requirement(self):
+    async def test_no_positive_fcf_equity_requirement(self):
         c = FixtureClient()
-        c.profiles['ONE']['cap_amount'] = '100000000000'
-        c.incomes['ONE'].latest.update(revenue='1000000000000', grossProfit='300000000000',
+        c.profiles['ONE']['cap_amount'] = '10000000'
+        c.incomes['ONE'].latest.update(revenue='100000000', grossProfit='30000000',
                                       operatingIncome=-1, ebit=-10)
         c.balances['ONE'].update(totalStockholdersEquity=-100, freeCashFlow=-100)
         args = await self.assess(c)
         self.assertEqual(args[4]['matched_rows'], 1)
         self.assertFalse(any('cashflow' in name for name, _ in c.calls))
+
+    async def test_usd_ceiling_rejects_before_balance_request(self):
+        for cap, expected in [('99999999.99', 1), ('100000000', 0), ('100000001', 0)]:
+            c = FixtureClient()
+            c.profiles['ONE']['cap_amount'] = cap
+            c.incomes['ONE'].latest.update(revenue='2000000000', grossProfit='600000000')
+            args = await self.assess(c)
+            self.assertEqual(args[4]['matched_rows'], expected)
+            self.assertEqual(dict(c.calls)['balance'], ['ONE'] if expected else [])
+            self.assertEqual(args[5]['market_cap_usd_max_exclusive'], '100000000')
+
+    async def test_same_non_usd_currency_requests_usd_fx_and_missing_is_unresolved(self):
+        c = FixtureClient()
+        c.profiles['ONE']['cap_currency'] = 'GBP'
+        c.incomes['ONE'].latest['reportedCurrency'] = 'GBP'
+        args = await self.assess(c)
+        self.assertEqual(dict(c.calls)['fx'], {'GBP', 'USD'})
+        self.assertEqual(args[4]['unresolved'], 1)
+        self.assertEqual(dict(c.calls)['balance'], [])
 
     async def test_latest_income_failure_does_not_fall_back(self):
         for latest, error in ((None, None), (income('ONE').latest, 'annual request failed')):
@@ -240,3 +259,4 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -51,10 +51,41 @@ class RevenueTests(unittest.TestCase):
         self.assertFalse(assess_revenue(profile(), income(grossProfit='29.999999999999999999999999'), {})['passes'])
         self.assertTrue(assess_revenue(profile(), income(grossProfit='30.000000000000000000000001'), {})['passes'])
 
-    def test_no_cap_ceiling_equity_or_fcf_gate(self):
-        p = profile('1000000000000')
+    def test_no_equity_or_fcf_gate(self):
+        p = profile('10000000')
         p.update(freeCashFlow=-1, totalStockholdersEquity=-1)
-        self.assertTrue(assess_revenue(p, income(revenue='10000000000000', grossProfit='3000000000000', operatingIncome=-1), {})['passes'])
+        self.assertTrue(assess_revenue(p, income(revenue='100000000', grossProfit='30000000', operatingIncome=-1), {})['passes'])
+
+    def test_strict_usd_cap_boundary(self):
+        i = income(revenue='2000000000', grossProfit='600000000')
+        for cap, expected in [('99999999.999999999999999999', True),
+                              ('100000000', False), ('100000000.000000000001', False)]:
+            with self.subTest(cap=cap), localcontext() as context:
+                context.prec = 3
+                r = assess_revenue(profile(cap), i, {})
+                self.assertEqual((r['status'], r['passes']), ('ok', expected))
+                self.assertEqual(r['market_cap_limit_passes'], expected)
+
+    def test_usd_cap_uses_cross_product_not_local_currency_ceiling(self):
+        rates = {'EUR': fx('1', 'EUR'), 'USD': fx('.8', 'USD')}
+        i = income(reportedCurrency='EUR', revenue='2000000000', grossProfit='600000000')
+        for cap, expected in [('79999999.999999999999', True), ('80000000', False),
+                              ('80000000.000000001', False)]:
+            r = assess_revenue(profile(cap, 'EUR'), i, rates)
+            self.assertEqual(r['passes'], expected)
+            self.assertEqual(r['cap_to_usd_fx_as_of'], {k: v['as_of'] for k, v in rates.items()})
+        rates = {'JPY': fx('.005', 'JPY'), 'USD': fx('.8', 'USD')}
+        self.assertTrue(assess_revenue(profile('1000000000', 'JPY'),
+            income(reportedCurrency='JPY', revenue='10000000000', grossProfit='3000000000'), rates)['passes'])
+
+    def test_same_currency_usd_conversion_missing_invalid_undated(self):
+        i = income(reportedCurrency='GBP')
+        for rates in ({}, {'USD': fx(0, 'USD')}, {'USD': fx('NaN', 'USD')},
+                      {'USD': dict(rate_to_gbp='.8')}, {'USD': fx('.8', 'EUR')}):
+            r = assess_revenue(profile('10', 'GBP'), i, rates)
+            self.assertEqual(r['status'], 'missing')
+            self.assertIsNone(r['passes'])
+            self.assertIsNone(r['market_cap_usd'])
 
     def test_no_missing_or_nonfinite_or_bool_cap(self):
         for cap in (None, '', 'NaN', 'Infinity', True, False, 'bad', -1, 0, '1e1001'):
@@ -103,7 +134,7 @@ class RevenueTests(unittest.TestCase):
     def test_pence_price_not_double_converted(self):
         p = profile('10', 'GBP', price='100')
         p['currency'] = 'GBp'
-        self.assertTrue(assess_revenue(p, income(reportedCurrency='GBP'), {})['passes'])
+        self.assertTrue(assess_revenue(p, income(reportedCurrency='GBP'), {'USD': fx('.8', 'USD')})['passes'])
 
     def test_fx_direction_and_exact_cross_currency_threshold(self):
         rates = {'EUR': fx('1', 'EUR'), 'USD': fx('.8', 'USD')}
@@ -113,8 +144,8 @@ class RevenueTests(unittest.TestCase):
         self.assertEqual(result['cap_to_income_fx_rate'], D('1.25'))
         self.assertFalse(assess_revenue(profile('8.000000000000000000000001', 'EUR'), income(), rates)['passes'])
 
-    def test_same_currency_requires_no_optional_fx(self):
-        self.assertTrue(assess_revenue(profile('10', 'JPY'), income(reportedCurrency='JPY'), {})['passes'])
+    def test_same_non_usd_currency_still_requires_usd_fx(self):
+        self.assertEqual(assess_revenue(profile('10', 'JPY'), income(reportedCurrency='JPY'), {})['status'], 'missing')
 
     def test_fx_missing_invalid_undated_or_mismatched(self):
         for rates in ({}, {'EUR': fx(0, 'EUR')}, {'EUR': fx('NaN', 'EUR')},
@@ -214,3 +245,4 @@ class NetCashTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

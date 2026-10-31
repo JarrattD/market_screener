@@ -1,9 +1,9 @@
 """Exact entry arithmetic for the revenue-multiple / margin / net-cash screen.
 
-Only three investment gates: cap <= 10% of positive FY revenue, FY GM >=30%,
+Four investment gates: cap < USD 100m, cap <= 10% of positive FY revenue, FY GM >=30%,
 and cash plus short-term investments > total debt. Selection of the newest
 available statements, quote/FX freshness and issuer evidence acquisition belong
-to the provider. No FCF, equity or absolute capitalization ceiling is imposed.
+to the provider. No FCF or equity gate is imposed.
 """
 from collections.abc import Mapping
 from decimal import Decimal
@@ -13,6 +13,7 @@ from .book_margin_calculations import (
     _result, _SUBUNITS, _sum, annual_margin,
 )
 
+MARKET_CAP_LIMIT_USD = Decimal("100000000")
 MAX_CAP_TO_REVENUE = Decimal("0.10")
 MIN_GROSS_MARGIN = Decimal("0.30")
 
@@ -43,7 +44,10 @@ def assess_revenue(profile, income, fx_rates):
     Both same-currency and FX threshold comparisons are exact cross-products;
     displayed division is never used for the pass/fail decision.
     """
-    result = _result(market_cap_to_revenue=None, market_cap_reporting=None,
+    result = _result(market_cap_usd=None, market_cap_limit_usd=MARKET_CAP_LIMIT_USD,
+                     market_cap_limit_passes=None, cap_to_usd_fx_rate=None,
+                     cap_to_usd_fx_as_of={},
+                     market_cap_to_revenue=None, market_cap_reporting=None,
                      revenue=None, gross_profit=None, gross_margin=None,
                      income_currency=None, maximum_cap_to_revenue=MAX_CAP_TO_REVENUE,
                      minimum_gross_margin=MIN_GROSS_MARGIN,
@@ -79,6 +83,16 @@ def assess_revenue(profile, income, fx_rates):
     conversion = _convert(cap["market_cap"], cap["market_cap_currency"], target, fx_rates)
     if conversion["reasons"]:
         return _missing(result, *conversion["reasons"])
+    usd = _convert(cap["market_cap"], cap["market_cap_currency"], "USD", fx_rates)
+    result.update(market_cap_usd=usd["value"], cap_to_usd_fx_rate=usd["rate"],
+                  cap_to_usd_fx_as_of=usd["as_of"])
+    if usd["reasons"]:
+        return _missing(result, *usd["reasons"])
+    cap_passes = (_product(cap["market_cap"], usd["numerator_rate"])
+                  < _product(MARKET_CAP_LIMIT_USD, usd["denominator_rate"]))
+    result["market_cap_limit_passes"] = cap_passes
+    if not cap_passes:
+        result["reasons"].append("market_cap_at_or_above_usd_100000000")
     multiple_passes = (_product(cap["market_cap"], conversion["numerator_rate"])
                        <= _product(MAX_CAP_TO_REVENUE, margin["revenue"],
                                    conversion["denominator_rate"]))
@@ -88,7 +102,7 @@ def assess_revenue(profile, income, fx_rates):
                   cap_to_income_fx_as_of=conversion["as_of"],
                   fx_rate=conversion["rate"], fx_as_of=conversion["as_of"],
                   revenue_multiple_passes=multiple_passes,
-                  passes=multiple_passes and margin["passes"])
+                  passes=cap_passes and multiple_passes and margin["passes"])
     if not multiple_passes:
         result["reasons"].append("market_cap_above_0_10_of_latest_annual_revenue")
     result["reasons"].extend(margin["reasons"])
@@ -144,3 +158,4 @@ def net_cash(balance):
     if amount <= 0:
         result["reasons"].append("cash_and_short_term_investments_not_above_total_debt")
     return result
+
