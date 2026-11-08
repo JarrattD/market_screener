@@ -3,7 +3,7 @@ import contextlib
 import io
 import types
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -194,7 +194,7 @@ class DestinationTests(unittest.TestCase):
         active = "\n".join(line for line in text.splitlines() if not line.startswith("#"))
         self.assertIn("workflow_dispatch:", active)
         self.assertIn("timezone: Europe/London", active)
-        self.assertIn("cron: '0 3 * * 6'", active)
+        self.assertIn("cron: '0 18 * * 5'", active)
         self.assertNotIn("  push:", active)
         self.assertNotIn("  issues:", active)
         test_job, production = active.split("  screen:", 1)
@@ -216,3 +216,13 @@ class DestinationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+def setUpModule():
+    global _batch_date_patch
+    _batch_date_patch = patch("negative_ev_fcf_screen.london_batch_date", return_value=date(2026, 10, 24))
+    _batch_date_patch.start()
+
+def tearDownModule():
+    _batch_date_patch.stop()

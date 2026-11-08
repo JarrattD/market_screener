@@ -14,7 +14,7 @@ class WorkflowBudgetTests(unittest.TestCase):
         ):
             with self.subTest(workflow=name):
                 text = (root / name).read_text()
-                self.assertRegex(text, r"cron: ['\"]0 3 \* \* 6['\"]")
+                self.assertRegex(text, r"cron: ['\"]0 18 \* \* 5['\"]")
                 self.assertRegex(text, r'timezone: [\"]?Europe/London')
                 self.assertEqual(text.count('group: production-screener'), 1)
                 self.assertIn('cancel-in-progress: false', text)
@@ -28,3 +28,4 @@ class WorkflowBudgetTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

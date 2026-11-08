@@ -510,7 +510,7 @@ class WorkflowOrderingTests(unittest.TestCase):
     def test_schedules_and_grants_remain_unchanged(self):
         for filename in ('screener.yml', 'book-margin-screen.yml', 'negative-ev-fcf-screen.yml'):
             source = (ROOT / '.github/workflows' / filename).read_text()
-            self.assertRegex(source, r"cron: ['\"]0 3 \* \* 6['\"]")
+            self.assertRegex(source, r"cron: ['\"]0 18 \* \* 5['\"]")
             self.assertRegex(source, r'timezone: [\"]?Europe/London')
             self.assertNotIn('workflow_run:', source)
             self.assertNotIn('actions: write', source)
@@ -525,3 +525,4 @@ class WorkflowOrderingTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

@@ -12,7 +12,7 @@ gate = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(gate)
 class WorkflowTests(unittest.TestCase):
     def setUp(self): self.text = (ROOT / PATH).read_text()
     def test_weekly_london_and_main_only_production(self):
-        self.assertIn("cron: '0 3 * * 6'", self.text)
+        self.assertIn("cron: '0 18 * * 5'", self.text)
         self.assertIn('timezone: Europe/London', self.text)
         screen = self.text.split('  screen:',1)[1]
         self.assertIn("github.event_name != 'pull_request'", screen)
@@ -55,3 +55,4 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(gate.GateError): gate._validate_context(env)
 
 if __name__ == '__main__': unittest.main()
+

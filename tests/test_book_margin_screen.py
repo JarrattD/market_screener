@@ -6,7 +6,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -412,9 +412,9 @@ class DestinationAndWorkflowTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         return (root / ".github/workflows/book-margin-screen.yml").read_text()
 
-    def test_workflow_scheduled_london_saturday_and_production_main_only(self):
+    def test_workflow_scheduled_london_friday_and_production_main_only(self):
         workflow = self.workflow()
-        self.assertIn("cron: '0 3 * * 6'", workflow)
+        self.assertIn("cron: '0 18 * * 5'", workflow)
         self.assertIn("timezone: Europe/London", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("github.event_name != 'pull_request'", workflow)
@@ -462,3 +462,13 @@ class CLITests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+def setUpModule():
+    global _batch_date_patch
+    _batch_date_patch = patch("book_margin_screen.london_batch_date", return_value=date(2026, 10, 24))
+    _batch_date_patch.start()
+
+def tearDownModule():
+    _batch_date_patch.stop()

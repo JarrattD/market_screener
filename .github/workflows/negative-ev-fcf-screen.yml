@@ -1,12 +1,15 @@
 name: Negative EV and Positive Five-Year FCF Screen
 on:
   schedule:
-    - cron: '0 3 * * 6'
+    - cron: '0 18 * * 5'
       timezone: Europe/London
   workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
+      - 'screenerV3/batch_date.py'
+      - 'screenerV3/completion.py'
+      - 'tests/test_batch_date.py'
       - 'screenerV3/appearance_cooldown.py'
       - 'screenerV3/revenue_net_cash_cooldown.py'
       - 'tests/appearance_cooldown_cases.py'
@@ -37,6 +40,7 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_quote_refresh.py' -v
       - run: python -m unittest discover -s tests -p 'test_negative_ev*.py' -v
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_batch_date.py' -v
       - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
       - run: python -m unittest discover -s tests -p 'test_performance_workflows.py' -v
       - run: python -m unittest discover -s tests -p 'test_screener_ordering.py' -v
@@ -99,4 +103,5 @@ jobs:
 # No push/issue trigger and no public candidate artifacts. PRs execute only the
 # offline test job. Production requires the separately authorized Sheet grant,
 # private destination configuration, and approved dispatch or main deployment.
+
 

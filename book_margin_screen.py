@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from zoneinfo import ZoneInfo
+from screenerV3.completion import london_batch_date
 from screenerV3.book_margin_calculations import screen_market_cap, screen_book_value, annual_margin, five_year_margins, asset_diagnostics
 from screenerV3.book_margin_output import open_destination, publish, resume_complete
 from screenerV3.book_margin_data import resolved_annual_history
@@ -46,18 +47,19 @@ def age_days(row, assessed):
 
 async def run(service_account, spreadsheet_id, client=None):
     sheet = open_destination(service_account, spreadsheet_id)
-    existing = resume_complete(sheet, datetime.now(ZoneInfo('Europe/London')).date(), CONFIG)
+    batch_date = london_batch_date()
+    existing = resume_complete(sheet, batch_date, CONFIG)
     if existing:
         print('Existing dated book-value results verified; no duplicate run', flush=True)
         return existing
     if client is None:
         from screenerV3.book_margin_data import FMPClient
-        async with FMPClient() as session: return await screen(session, sheet)
-    return await screen(client, sheet)
+        async with FMPClient() as session: return await screen(session, sheet, batch_date)
+    return await screen(client, sheet, batch_date)
 
-async def screen(client, sheet):
+async def screen(client, sheet, batch_date=None):
     started, assessed = time.perf_counter(), datetime.now(timezone.utc)
-    batch_date = assessed.astimezone(ZoneInfo('Europe/London')).date()
+    batch_date = batch_date or london_batch_date()
     print('Loading fresh global universe and profiles', flush=True)
     universe = await client.fetch_universe(); health(client)
     profiles, issues = await client.fetch_profiles(universe); health(client)
@@ -183,3 +185,4 @@ def main():
         print('Book-value screen failed before verified completion: ' + type(exc).__name__, file=sys.stderr); return 1
     return 0
 if __name__ == '__main__': raise SystemExit(main())
+

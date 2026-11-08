@@ -17,6 +17,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from zoneinfo import ZoneInfo
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from screenerV3.batch_date import batch_window, run_batch_date as shared_batch_date
 
 REPOSITORY = 'JarrattD/market_screener'
 MAIN_WORKFLOW = '.github/workflows/screener.yml'
@@ -51,10 +54,7 @@ def normalized_path(path):
 
 def run_batch_date(run):
     try:
-        created = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
-        if created.tzinfo is None:
-            raise ValueError('timezone required')
-        return created.astimezone(LONDON).date()
+        return shared_batch_date(run)
     except (KeyError, TypeError, ValueError, AttributeError):
         raise GateError('Invalid original workflow creation time') from None
 
@@ -122,9 +122,11 @@ def select_main_run(payload, child):
 
 
 def _list_path(child):
-    day = run_batch_date(child)
-    start = datetime.combine(day, daytime.min, LONDON).astimezone(timezone.utc)
-    end = datetime.combine(day + timedelta(days=1), daytime.min, LONDON).astimezone(timezone.utc)
+    try:
+        start, end = batch_window(child)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise GateError('Invalid original workflow creation time') from None
+    start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
     stamp = lambda value: value.isoformat(timespec='seconds').replace('+00:00', 'Z')
     query = urlencode({'event': 'schedule', 'branch': 'main', 'per_page': 100,
                        'created': stamp(start) + '..' + stamp(end - timedelta(seconds=1))})
@@ -304,4 +306,5 @@ def main(env=None):
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
 

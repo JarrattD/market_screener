@@ -5,7 +5,7 @@ name: Cloud Screener
 
 on:
   schedule:
-    - cron: '0 3 * * 6'
+    - cron: '0 18 * * 5'
       timezone: "Europe/London"
   issues:
       types:
@@ -25,6 +25,7 @@ jobs:
         with:
           python-version: '3.10'
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_batch_date.py' -v
       - run: python -m unittest discover -s tests -p 'test_v2_tab_order.py' -v
       - run: pip install aiohttp pandas python-dotenv gspread==6.0.1
       - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
@@ -87,4 +88,5 @@ jobs:
           path: research_completion.json
           if-no-files-found: error
           retention-days: 90
+
 

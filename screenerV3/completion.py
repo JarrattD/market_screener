@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from screenerV3.tab_order import output_tab_options
+from screenerV3.batch_date import run_batch_date
 
 HEADERS = {
     'alpha': ['Ticker', 'Company Name', 'FV Upside', '5Y Price Metric', ' ', 'NCAV Ratio', 'EV/aFCF', 'Payback Rating', 'Average Yield', 'HQ Country'],
@@ -123,7 +124,7 @@ def london_batch_date():
             run = json.load(response)
         if str(run.get('id')) != run_id:
             raise ValueError('Workflow run identity mismatch')
-        created = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
-        return created.astimezone(ZoneInfo('Europe/London')).date()
+        return run_batch_date(run)
     return datetime.now(ZoneInfo('Europe/London')).date()
+
 

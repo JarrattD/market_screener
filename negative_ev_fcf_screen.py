@@ -12,6 +12,7 @@ import json
 import sys
 import time
 from zoneinfo import ZoneInfo
+from screenerV3.completion import london_batch_date
 
 from screenerV3.data_freshness import POLICY, DataFreshnessError, require_quote_current, require_statement_current
 from screenerV3.negative_ev_calculations import enterprise_value, cumulative_fcf
@@ -76,21 +77,22 @@ def ev_fx(profile, balance, rates):
 
 async def run(service_account, spreadsheet_id, client=None):
     sheet = open_destination(service_account, spreadsheet_id)
-    existing = resume_complete(sheet, datetime.now(ZoneInfo("Europe/London")).date(), CONFIG)
+    batch_date = london_batch_date()
+    existing = resume_complete(sheet, batch_date, CONFIG)
     if existing:
         print("Existing dated negative-EV results verified; no duplicate run", flush=True)
         return existing
     if client is None:
         from screenerV3.negative_ev_data import FMPClient
         async with FMPClient() as session:
-            return await screen(session, sheet)
-    return await screen(client, sheet)
+            return await screen(session, sheet, batch_date)
+    return await screen(client, sheet, batch_date)
 
 
-async def screen(client, sheet):
+async def screen(client, sheet, batch_date=None):
     started = time.perf_counter()
     assessed = datetime.now(timezone.utc)
-    batch_date = assessed.astimezone(ZoneInfo("Europe/London")).date()
+    batch_date = batch_date or london_batch_date()
     print("Loading fresh global universe and profiles", flush=True)
     universe = await client.fetch_universe()
     require_provider_health(client)
@@ -265,3 +267,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

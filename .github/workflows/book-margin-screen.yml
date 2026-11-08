@@ -1,12 +1,15 @@
 name: Low Book Value and High Gross Margin Screen
 on:
   schedule:
-    - cron: '0 3 * * 6'
+    - cron: '0 18 * * 5'
       timezone: Europe/London
   workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
+      - 'screenerV3/batch_date.py'
+      - 'screenerV3/completion.py'
+      - 'tests/test_batch_date.py'
       - 'screenerV3/appearance_cooldown.py'
       - 'screenerV3/revenue_net_cash_cooldown.py'
       - 'tests/appearance_cooldown_cases.py'
@@ -33,6 +36,7 @@ jobs:
       - run: pip install aiohttp gspread==6.0.1
       - run: python -m unittest discover -s tests -p 'test_book_margin*.py' -v
       - run: python -m unittest discover -s tests -p 'test_completion.py' -v
+      - run: python -m unittest discover -s tests -p 'test_batch_date.py' -v
       - run: python -m unittest discover -s tests -p 'test_fmp_limits.py' -v
       - run: python -m unittest discover -s tests -p 'test_performance_workflows.py' -v
       - run: python -m unittest discover -s tests -p 'test_screener_ordering.py' -v
@@ -88,4 +92,5 @@ jobs:
       - name: Remove temporary credentials
         if: always()
         run: rm -f private_screen_run/service_account.json
+
 
