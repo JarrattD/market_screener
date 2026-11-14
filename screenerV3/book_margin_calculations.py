@@ -1,6 +1,6 @@
 """Pure, conservative arithmetic for the ordinary-book/high-gross-margin screen.
 
-The only gates are positive valid market cap <= USD 75m, positive ordinary
+The only gates are positive valid market cap (no size ceiling), positive ordinary
 attributable book with P/B <= 0.5, and positive annual revenue with GM >= 30%.
 There is no net-cash, FCF, operating-margin or tangible-book gate here.
 
@@ -31,7 +31,6 @@ import re
 from typing import Any
 
 
-MARKET_CAP_LIMIT_USD = Decimal("75000000")
 MAX_PRICE_TO_BOOK = Decimal("0.5")
 MIN_GROSS_MARGIN = Decimal("0.30")
 _ONE = Decimal(1)
@@ -174,9 +173,9 @@ def _cap_input(profile: Mapping) -> dict:
 
 
 def screen_market_cap(profile: Mapping, fx_rates: Mapping) -> dict:
-    """Check a vetted positive market cap against the inclusive USD 75m limit."""
+    """Validate and convert a vetted positive market cap without a size ceiling."""
     result = _cap_input(profile)
-    result["market_cap_limit_usd"] = MARKET_CAP_LIMIT_USD
+    result["market_cap_limit_usd"] = None
     result["cap_to_usd_fx_rate"] = None
     if result["status"] == "missing":
         return result
@@ -185,10 +184,7 @@ def screen_market_cap(profile: Mapping, fx_rates: Mapping) -> dict:
                   cap_to_usd_fx_rate=conversion["rate"])
     if conversion["reasons"]:
         return _missing(result, *conversion["reasons"])
-    result["passes"] = (_product(result["market_cap"], conversion["numerator_rate"])
-                         <= _product(MARKET_CAP_LIMIT_USD, conversion["denominator_rate"]))
-    if not result["passes"]:
-        result["reasons"].append("market_cap_above_usd_75000000")
+    result["passes"] = True
     return result
 
 

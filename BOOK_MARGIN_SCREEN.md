@@ -4,7 +4,7 @@ This is a separate fifth screen. It does not change the existing screens.
 
 A listing must satisfy all three conditions:
 
-1. Verified positive market capitalization, converted to USD, at or below $75m.
+1. Verified positive market capitalization, converted to USD for reporting, with no absolute size ceiling.
 2. Positive ordinary attributable book equity and market cap / that equity at or below 0.5x.
 3. The newest completed publicly filed annual period has positive revenue and gross profit / revenue at or above 30%.
 
@@ -26,7 +26,7 @@ Profiles preserve price currency versus cap currency. A GBp/GBX price does not i
 
 ## Efficient and private operations
 
-Use one paced client, at most 280 requests/minute, bounded worker concurrency, a separate one-bulk-download/minute limiter, Retry-After handling and a run-wide exhausted-quota circuit breaker. The screen reads profiles, gates on USD market cap, reads annual income only for survivors, and reads balance sheets only after the gross-margin gate. The annual response supplies the optional history without an extra request. It never needs cash-flow endpoints.
+Use one paced client, at most 280 requests/minute, bounded worker concurrency, a separate one-bulk-download/minute limiter, Retry-After handling and a run-wide exhausted-quota circuit breaker. The screen reads profiles, validates positive market cap and its currency, reads annual income only for survivors, and reads balance sheets only after the gross-margin gate. The annual response supplies the optional history without an extra request. It never needs cash-flow endpoints.
 
 Every supplied universe symbol is accounted as match, rejected, unresolved, excluded security or verified duplicate listing. Same-ISIN listings are deduplicated; possible issuer aliases are shown, not guessed away. The universe is FMP's fresh worldwide directory, not a previous result list or a top-N sample. This cannot guarantee coverage of every issuer worldwide.
 

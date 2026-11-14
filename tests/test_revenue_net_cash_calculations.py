@@ -56,36 +56,18 @@ class RevenueTests(unittest.TestCase):
         p.update(freeCashFlow=-1, totalStockholdersEquity=-1)
         self.assertTrue(assess_revenue(p, income(revenue='100000000', grossProfit='30000000', operatingIncome=-1), {})['passes'])
 
-    def test_strict_usd_cap_boundary(self):
-        i = income(revenue='2000000000', grossProfit='600000000')
-        for cap, expected in [('99999999.999999999999999999', True),
-                              ('100000000', False), ('100000000.000000000001', False)]:
-            with self.subTest(cap=cap), localcontext() as context:
-                context.prec = 3
-                r = assess_revenue(profile(cap), i, {})
-                self.assertEqual((r['status'], r['passes']), ('ok', expected))
-                self.assertEqual(r['market_cap_limit_passes'], expected)
+    def test_no_fixed_cap_ceiling_preserves_relative_revenue_gate(self):
+        for cap in ('99999999.99', '100000000', '300000000', '1000000000', '1000000000000'):
+            with self.subTest(cap=cap):
+                i = income(revenue=str(Decimal(cap) * 10), grossProfit=str(Decimal(cap) * 3))
+                self.assertTrue(assess_revenue(profile(cap), i, {})['passes'])
+                i['revenue'] = str(Decimal(cap) * 9)
+                self.assertFalse(assess_revenue(profile(cap), i, {})['passes'])
 
-    def test_usd_cap_uses_cross_product_not_local_currency_ceiling(self):
-        rates = {'EUR': fx('1', 'EUR'), 'USD': fx('.8', 'USD')}
-        i = income(reportedCurrency='EUR', revenue='2000000000', grossProfit='600000000')
-        for cap, expected in [('79999999.999999999999', True), ('80000000', False),
-                              ('80000000.000000001', False)]:
-            r = assess_revenue(profile(cap, 'EUR'), i, rates)
-            self.assertEqual(r['passes'], expected)
-            self.assertEqual(r['cap_to_usd_fx_as_of'], {k: v['as_of'] for k, v in rates.items()})
-        rates = {'JPY': fx('.005', 'JPY'), 'USD': fx('.8', 'USD')}
-        self.assertTrue(assess_revenue(profile('1000000000', 'JPY'),
-            income(reportedCurrency='JPY', revenue='10000000000', grossProfit='3000000000'), rates)['passes'])
-
-    def test_same_currency_usd_conversion_missing_invalid_undated(self):
-        i = income(reportedCurrency='GBP')
-        for rates in ({}, {'USD': fx(0, 'USD')}, {'USD': fx('NaN', 'USD')},
-                      {'USD': dict(rate_to_gbp='.8')}, {'USD': fx('.8', 'EUR')}):
-            r = assess_revenue(profile('10', 'GBP'), i, rates)
-            self.assertEqual(r['status'], 'missing')
-            self.assertIsNone(r['passes'])
-            self.assertIsNone(r['market_cap_usd'])
+    def test_same_currency_does_not_require_usd_conversion(self):
+        for currency in ('GBP', 'EUR', 'JPY'):
+            self.assertTrue(assess_revenue(profile('1000000000', currency),
+                income(reportedCurrency=currency, revenue='10000000000', grossProfit='3000000000'), {})['passes'])
 
     def test_no_missing_or_nonfinite_or_bool_cap(self):
         for cap in (None, '', 'NaN', 'Infinity', True, False, 'bad', -1, 0, '1e1001'):
@@ -144,8 +126,8 @@ class RevenueTests(unittest.TestCase):
         self.assertEqual(result['cap_to_income_fx_rate'], D('1.25'))
         self.assertFalse(assess_revenue(profile('8.000000000000000000000001', 'EUR'), income(), rates)['passes'])
 
-    def test_same_non_usd_currency_still_requires_usd_fx(self):
-        self.assertEqual(assess_revenue(profile('10', 'JPY'), income(reportedCurrency='JPY'), {})['status'], 'missing')
+    def test_same_non_usd_currency_without_usd_fx_is_valid(self):
+        self.assertEqual(assess_revenue(profile('10', 'JPY'), income(reportedCurrency='JPY'), {})['status'], 'ok')
 
     def test_fx_missing_invalid_undated_or_mismatched(self):
         for rates in ({}, {'EUR': fx(0, 'EUR')}, {'EUR': fx('NaN', 'EUR')},

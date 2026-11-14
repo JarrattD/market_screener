@@ -1,4 +1,4 @@
-"""Independent global <=US$75m, <=0.5x ordinary book, >=30% annual GM screen."""
+"""Independent global <=0.5x ordinary book, >=30% annual GM screen; no size ceiling."""
 import argparse
 import asyncio
 from collections import Counter
@@ -12,7 +12,7 @@ from screenerV3.book_margin_calculations import screen_market_cap, screen_book_v
 from screenerV3.book_margin_output import open_destination, publish, resume_complete
 from screenerV3.book_margin_data import resolved_annual_history
 
-CONFIG = {'version': 1, 'market_cap_usd_min_exclusive': 0, 'market_cap_usd_max_inclusive': 75000000,
+CONFIG = {'version': 2, 'market_cap_usd_min_exclusive': 0, 'market_cap_ceiling': None,
           'ordinary_book_equity_positive': True, 'price_to_ordinary_book_max_inclusive': '0.5',
           'latest_completed_annual_gross_margin_min_inclusive': '0.30', 'revenue_positive': True,
           'additional_investment_filters': [], 'balance': 'Newest completed annual or interim',
@@ -75,17 +75,16 @@ async def screen(client, sheet, batch_date=None):
     needed = currencies | {'USD'} if currencies - {'USD'} else set()
     rates, fx_issues = await client.fetch_fx(needed) if needed else ({}, []); health(client)
     issues.extend(fx_issues)
-    caps, small = {}, []
+    caps, valid_caps = {}, []
     for symbol in eligible:
         cap = screen_market_cap(profiles[symbol], rates); caps[symbol] = cap
         if cap['status'] != 'ok': audit[symbol] = audit_row(symbol, 'unresolved', reasons(cap))
-        elif not cap['passes']: audit[symbol] = audit_row(symbol, 'rejected', 'Market cap exceeds US$75m')
-        else: small.append(symbol)
+        else: valid_caps.append(symbol)
     print('Reading annual income only for verified market-cap candidates', flush=True)
-    incomes, income_issues = await client.fetch_annual_income(small); health(client)
+    incomes, income_issues = await client.fetch_annual_income(valid_caps); health(client)
     issues.extend(income_issues)
     margins, high_margin = {}, []
-    for symbol in small:
+    for symbol in valid_caps:
         income = incomes.get(symbol)
         if income is None or income.latest is None:
             audit[symbol] = audit_row(symbol, 'unresolved', 'Latest completed annual income missing or conflicting'); continue
@@ -138,7 +137,7 @@ async def screen(client, sheet, batch_date=None):
             'https://site.financialmodelingprep.com/financial-summary/' + symbol,
             p.get('security_identity', 'SYMBOL:' + symbol), '', book.get('cap_to_book_fx_as_of'), book.get('cap_to_book_fx_rate')])
         calculations[symbol] = {'market_cap': cap, 'book': book, 'margin': margin, 'trend': trend, 'assets': assets}
-        audit[symbol] = audit_row(symbol, 'match', 'Market cap <=US$75m; ordinary equity >0 and P/B <=0.5; annual GM >=30%')
+        audit[symbol] = audit_row(symbol, 'match', 'Verified positive market cap, no size ceiling; ordinary equity >0 and P/B <=0.5; annual GM >=30%')
     unique, identity_index, aliases_index = {}, HEADERS.index('Security identity'), HEADERS.index('Possible issuer aliases')
     for row in sorted(rows[1:], key=lambda r: (r[2], r[0])):
         identity = row[identity_index]
@@ -159,7 +158,7 @@ async def screen(client, sheet, batch_date=None):
     issues.extend(client.diagnostics); counts = Counter(row[1] for row in audit.values())
     coverage = {'status': 'complete_with_unresolved' if counts['unresolved'] or issues else 'complete',
         'provider_universe': len(expected), **dict(counts), 'matched_rows': len(rows)-1,
-        'market_cap_candidates': len(small), 'annual_margin_candidates': len(high_margin), 'assessment_utc': assessed.isoformat(),
+        'market_cap_candidates': len(valid_caps), 'annual_margin_candidates': len(high_margin), 'assessment_utc': assessed.isoformat(),
         'data_issue_count': len(issues), 'universe_sources': client.universe_source,
         'data_stage_seconds': round(time.perf_counter()-started, 3), 'request_metrics': text(getattr(client, 'metrics', {}))}
     audit_rows = [['Ticker', 'Status', 'Reason', 'Source']] + sorted(audit.values())

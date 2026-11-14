@@ -2,20 +2,19 @@
 
 This independent global screen adds no ownership data and changes no existing screen's financial criteria.
 
-## Four entry gates
+## Three entry gates
 
 1. Verified positive whole-issuer market capitalization, converted into the latest completed annual income statement's currency, is **less than or equal to 10%** of positive annual revenue.
 2. Gross profit divided by revenue for that **same FY** is **at least 30%**.
-3. Whole-issuer market capitalization is **strictly below US$100,000,000**, using verified dated FX for non-USD caps; exactly US$100m does not qualify. No local-currency ceiling is substituted.
-4. Cash and short-term investments on the latest available completed annual/interim balance sheet **strictly exceed total debt**.
+3. Cash and short-term investments on the latest available completed annual/interim balance sheet **strictly exceed total debt**.
 
-Exactly 10% and exactly 30% qualify. Net cash of exactly zero does not. No FCF, equity, valuation-ranking, country or sector gate is added. Missing USD-conversion FX remains unresolved even when cap and revenue share a non-USD currency. Invalid/missing evidence is unresolved, not zero. Fresh provider global directory is used without top-N truncation; coverage is not a guarantee of every issuer worldwide.
+Exactly 10% and exactly 30% qualify. Net cash of exactly zero does not. No FCF, equity, valuation-ranking, country or sector gate is added. There is no absolute market-cap floor or ceiling beyond a positive validated whole-issuer cap. FX is required only where cap and revenue currencies differ. Invalid/missing evidence is unresolved, not zero. Fresh provider global directory is used without top-N truncation; coverage is not a guarantee of every issuer worldwide.
 
 The combined cash field is used once, otherwise both explicit components are required. Total debt is used once, without adding leases again. Contradictory combined/component values remain unresolved. Newest periods and newest verified revisions are selected; conflicting or future evidence cannot be replaced by an older favorable observation. Both balance frequencies must succeed. Latest accounts must meet the existing 18-calendar-month freshness policy; quotes and FX meet existing seven-day policy.
 
 Quote cap is refreshed before use and separately reconciled against current outstanding shares, not float shares. Price units and cap currency are distinct. Provider-internal reconciliation within 1% does not constitute an independent issuer audit. Unverified ADR ratios or indicated multiple-share-class scope are unresolved. There are no ownership/holder endpoints or filters.
 
-Criteria update deployed to main on 31 October 2026 (PR #62): adds the strict USD cap; prior completed outputs retain their original criteria and are not rewritten.
+The 14 November 2026 criteria update removes the fixed USD market-cap ceiling introduced on 31 October 2026. Prior completed outputs retain their original origin-commit criteria and are not rewritten or rerun. All relative valuation and other entry criteria remain unchanged.
 
 ## Publication and ranking
 

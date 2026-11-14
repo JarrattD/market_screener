@@ -46,18 +46,26 @@ FX = {"USD": rate("0.8"), "EUR": rate("1"), "JPY": rate("0.005")}
 
 
 class MarketCapTests(unittest.TestCase):
-    def test_inclusive_usd_boundary_needs_no_fx(self):
+    def test_positive_usd_cap_needs_no_fx(self):
         r = screen_market_cap(profile(), {})
         self.assertEqual((r["status"], r["passes"], r["market_cap_usd"]), ("ok", True, D("75000000")))
         self.assertEqual(r["fx_as_of"], {})
 
-    def test_usd_boundary_one_small_decimal_above_fails(self):
+    def test_cap_above_former_ceiling_passes(self):
         r = screen_market_cap(profile("75000000.00000000000000000000000001"), {})
-        self.assertIs(r["passes"], False)
+        self.assertIs(r["passes"], True)
+        self.assertIsNone(r["market_cap_limit_usd"])
         self.assertEqual(r["status"], "ok")
 
-    def test_usd_boundary_one_small_decimal_below_passes(self):
+    def test_cap_below_former_ceiling_passes(self):
         self.assertTrue(screen_market_cap(profile("74999999.99999999999999999999999999"), {})["passes"])
+
+    def test_large_caps_are_valid_without_a_ceiling(self):
+        for cap in ("100000000", "300000000", "10000000000000"):
+            with self.subTest(cap=cap):
+                result = screen_market_cap(profile(cap), {})
+                self.assertTrue(result["passes"])
+                self.assertEqual(result["market_cap_usd"], D(cap))
 
     def test_vetted_fields_required_no_raw_fallback(self):
         for p in ({"marketCap": 1, "currency": "USD"}, {"mktCap": 1, "currency": "USD"}, {}):
@@ -92,7 +100,7 @@ class MarketCapTests(unittest.TestCase):
 
     def test_fx_cross_not_raw_foreign_amount(self):
         r = screen_market_cap(profile("75000000", "EUR"), FX)
-        self.assertFalse(r["passes"])
+        self.assertTrue(r["passes"])
         self.assertEqual(r["market_cap_usd"], D("93750000"))
         self.assertEqual(r["cap_to_usd_fx_rate"], D("1.25"))
 
@@ -101,7 +109,7 @@ class MarketCapTests(unittest.TestCase):
         self.assertTrue(r["passes"])
         self.assertEqual(set(r["fx_as_of"]), {"EUR", "USD"})
         self.assertEqual(r["fx_as_of"]["EUR"], FX["EUR"]["as_of"])
-        self.assertFalse(screen_market_cap(profile("60000000.0000000000000000000001", "EUR"), FX)["passes"])
+        self.assertTrue(screen_market_cap(profile("60000000.0000000000000000000001", "EUR"), FX)["passes"])
 
     def test_missing_usd_or_foreign_fx_is_unresolved(self):
         for fx in ({}, {"EUR": rate("1")}, {"USD": rate("0.8")}):
@@ -526,7 +534,7 @@ class PurityAndPrecisionTests(unittest.TestCase):
                 target = D(rng.randrange(1, 10000)) / D(100)
                 fx = {"EUR": rate(source), "USD": rate(target)}
                 p = profile(cap, "EUR")
-                expected_cap = Fraction(cap) * Fraction(source) <= 75_000_000 * Fraction(target)
+                expected_cap = True  # Valid positive caps have no size ceiling.
                 self.assertEqual(screen_market_cap(p, fx)["passes"], expected_cap)
                 expected_book = 2 * Fraction(cap) * Fraction(source) <= Fraction(equity) * Fraction(target)
                 b = {"commonStockEquity": equity, "reportedCurrency": "USD"}
@@ -570,7 +578,7 @@ class PurityAndPrecisionTests(unittest.TestCase):
     def test_repeating_fx_ratio_cannot_round_boundary_into_pass(self):
         fx = {"USD": rate("3"), "EUR": rate("1")}
         r = screen_market_cap(profile("225000000.000000000000000000000000000000001", "EUR"), fx)
-        self.assertFalse(r["passes"])
+        self.assertTrue(r["passes"])
         r = screen_book_value(profile("225000000.000000000000000000000000000000001", "EUR"), balance(), fx)
         self.assertFalse(r["passes"])
 
