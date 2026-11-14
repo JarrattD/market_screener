@@ -19,7 +19,8 @@ RUN_OWNER = os.getenv("GITHUB_RUN_ID") or "local-" + uuid.uuid4().hex
 CRITERIA_KEY_ORDER = (
     'version',
     'market_cap_usd_min_exclusive',
-    'market_cap_usd_max_inclusive',
+    'market_cap_usd_max_inclusive',  # Historical capped CONFIG only.
+    'market_cap_ceiling',  # Current no-ceiling CONFIG; old hashes stay unchanged.
     'ordinary_book_equity_positive',
     'price_to_ordinary_book_max_inclusive',
     'latest_completed_annual_gross_margin_min_inclusive',

@@ -141,24 +141,24 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[4]['matched_rows'], 1)
         self.assertFalse(any('cashflow' in name for name, _ in c.calls))
 
-    async def test_usd_ceiling_rejects_before_balance_request(self):
-        for cap, expected in [('99999999.99', 1), ('100000000', 0), ('100000001', 0)]:
+    async def test_no_fixed_usd_ceiling_large_matches_reach_balance_request(self):
+        for cap in ('100000000', '300000000', '1000000000', '1000000000000'):
             c = FixtureClient()
             c.profiles['ONE']['cap_amount'] = cap
-            c.incomes['ONE'].latest.update(revenue='2000000000', grossProfit='600000000')
+            c.incomes['ONE'].latest.update(revenue=str(int(cap)*10), grossProfit=str(int(cap)*3))
             args = await self.assess(c)
-            self.assertEqual(args[4]['matched_rows'], expected)
-            self.assertEqual(dict(c.calls)['balance'], ['ONE'] if expected else [])
-            self.assertEqual(args[5]['market_cap_usd_max_exclusive'], '100000000')
+            self.assertEqual(args[4]['matched_rows'], 1)
+            self.assertEqual(dict(c.calls)['balance'], ['ONE'])
+            self.assertNotIn('market_cap_usd_max_exclusive', args[5])
 
-    async def test_same_non_usd_currency_requests_usd_fx_and_missing_is_unresolved(self):
+    async def test_same_non_usd_currency_does_not_request_usd_fx(self):
         c = FixtureClient()
         c.profiles['ONE']['cap_currency'] = 'GBP'
         c.incomes['ONE'].latest['reportedCurrency'] = 'GBP'
         args = await self.assess(c)
-        self.assertEqual(dict(c.calls)['fx'], {'GBP', 'USD'})
-        self.assertEqual(args[4]['unresolved'], 1)
-        self.assertEqual(dict(c.calls)['balance'], [])
+        self.assertEqual(dict(c.calls)['fx'], {'GBP'})
+        self.assertEqual(args[4]['matched_rows'], 1)
+        self.assertEqual(dict(c.calls)['balance'], ['ONE'])
 
     async def test_latest_income_failure_does_not_fall_back(self):
         for latest, error in ((None, None), (income('ONE').latest, 'annual request failed')):

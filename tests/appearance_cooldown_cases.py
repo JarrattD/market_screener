@@ -76,8 +76,8 @@ class AppearanceCooldownCases:
 
     def load_legacy(self):
         fixture = json.loads((Path(__file__).parent / 'fixtures' / 'appearance_cooldown_legacy.json').read_text())[self.kind]
-        self.assertEqual(fixture['config'], self.config)
-        self.assertEqual(fixture['criteria_hash'], self.output.stable_hash(self.config))
+        self.legacy_config = fixture['config']
+        self.assertEqual(fixture['criteria_hash'], self.output.stable_hash(self.legacy_config))
         for entry in fixture['tabs']:
             tab = self.sheet.add_worksheet(entry['title'], 100, 50)
             tab.id, tab.rows, tab.note = entry['id'], entry['rows'], entry['note']
@@ -97,37 +97,46 @@ class AppearanceCooldownCases:
             tab = self.sheet.worksheet(old[0])
             self.assertEqual((tab.id, tab.rows, tab.note), old[1:])
         for day in (date(2026, 10, 24), date(2026, 10, 31)):
-            receipt = self.output.resume_complete(self.sheet, day, self.config)
+            receipt = self.output.resume_complete(self.sheet, day, self.legacy_config)
             self.assertEqual(receipt['commit'], 'ff577314d7f24fe4ef501cd2f2a9fd0659ae034d')
 
     def test_legacy_same_day_resume_is_unchanged(self):
         self.load_legacy()
         day = date(2026, 10, 31)
         before = snapshot(self.sheet)
-        receipt = self.output.resume_complete(self.sheet, day, self.config)
+        receipt = self.output.resume_complete(self.sheet, day, self.legacy_config)
         self.assertEqual(self.output.publish(self.sheet, day, self.result(day),
-                         [['ignored']], {'status': 'complete'}, self.config), receipt)
+                         [['ignored']], {'status': 'complete'}, self.legacy_config), receipt)
         self.assertEqual(snapshot(self.sheet), before)
 
     def test_legacy_criteria_hash_is_not_sorted_json_hash(self):
         self.load_legacy()
         parsed = json.loads(dict(self.sheet.worksheet('Coverage 31-Oct-2026').rows[1:])['Criteria'])
-        self.assertNotEqual(self.output.stable_hash(parsed), self.output.stable_hash(self.config))
+        self.assertNotEqual(self.output.stable_hash(parsed), self.output.stable_hash(self.legacy_config))
         self.assertIsNotNone(self.output.resume_complete(self.sheet, date(2026, 10, 31), parsed, historical=True))
         with self.assertRaises(ValueError):
             self.output.resume_complete(self.sheet, date(2026, 10, 31), parsed)
 
     def test_historical_unknown_schema_or_numeric_type_change_is_not_canonicalized(self):
         self.load_legacy()
-        changed = copy.deepcopy(self.config)
+        changed = copy.deepcopy(self.legacy_config)
         changed['unknown_schema_key'] = True
         with self.assertRaises(ValueError):
             self.output.resume_complete(self.sheet, date(2026, 10, 31), changed, historical=True)
-        changed = copy.deepcopy(self.config)
+        changed = copy.deepcopy(self.legacy_config)
         if self.kind == 'book_margin': changed['market_cap_usd_max_inclusive'] = 75000000.0
         else: changed['data_freshness']['quote_max_age_days'] = 7.0
         with self.assertRaises(ValueError):
             self.output.resume_complete(self.sheet, date(2026, 10, 31), changed, historical=True)
+
+    def test_current_config_cannot_relabel_legacy_completed_run(self):
+        self.load_legacy()
+        if self.config == self.legacy_config:
+            return
+        before = snapshot(self.sheet)
+        with self.assertRaises(ValueError):
+            self.output.resume_complete(self.sheet, date(2026, 10, 31), self.config)
+        self.assertEqual(snapshot(self.sheet), before)
 
     def test_latest_actual_appearance_controls_not_first_appearance(self):
         self.load_legacy()

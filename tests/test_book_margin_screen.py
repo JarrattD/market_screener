@@ -108,17 +108,20 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["Latest FY gross margin"], Decimal("0.30"))
         self.assertEqual(self.statuses(result), {"ONE": "match"})
         self.assertEqual(result["config"]["additional_investment_filters"], [])
+        self.assertIsNone(result["config"]["market_cap_ceiling"])
+        self.assertNotIn("market_cap_usd_max_inclusive", result["config"])
         self.assertEqual(len(row), len(screen.HEADERS))
 
-    async def test_above_cap_stops_before_income_and_gross_margin_stops_before_balance(self):
+    async def test_large_cap_continues_but_gross_margin_stops_before_balance(self):
         client = FakeClient(("BIG", "LOW", "GOOD"))
-        client.profiles["BIG"]["cap_amount"] = "75000000.0000000001"
+        client.profiles["BIG"]["cap_amount"] = 10_000_000_000
+        client.balances["BIG"]["totalStockholdersEquity"] = 20_000_000_000
         client.incomes["LOW"] = history(income("LOW", grossProfit="29.9999999999999999"))
         result = await self.execute(client)
         self.assertEqual(client.calls, [
             ("universe",), ("profiles", ("BIG", "LOW", "GOOD")),
-            ("income", ("LOW", "GOOD")), ("balance", ("GOOD",))])
-        self.assertEqual(self.statuses(result), {"BIG": "rejected", "LOW": "rejected", "GOOD": "match"})
+            ("income", ("BIG", "LOW", "GOOD")), ("balance", ("BIG", "GOOD"))])
+        self.assertEqual(self.statuses(result), {"BIG": "match", "LOW": "rejected", "GOOD": "match"})
 
     async def test_pb_just_over_boundary_rejected_without_rounding(self):
         client = FakeClient()
@@ -262,8 +265,8 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["rows"], [screen.HEADERS])
         self.assertEqual(result["coverage"]["status"], "complete")
         self.assertEqual(result["coverage"]["matched_rows"], 0)
-        self.assertIn(("income", ()), client.calls)
-        self.assertIn(("balance", ()), client.calls)
+        self.assertIn(("income", ("BIG",)), client.calls)
+        self.assertIn(("balance", ("BIG",)), client.calls)
 
     async def test_systemic_failure_or_empty_universe_never_publishes_success(self):
         for mode in ("health", "empty_universe", "no_profiles"):
