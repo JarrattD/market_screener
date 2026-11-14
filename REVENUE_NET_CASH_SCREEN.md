@@ -6,7 +6,7 @@ This independent global screen adds no ownership data and changes no existing sc
 
 1. Verified positive whole-issuer market capitalization, converted into the latest completed annual income statement's currency, is **less than or equal to 10%** of positive annual revenue.
 2. Gross profit divided by revenue for that **same FY** is **at least 30%**.
-3. Whole-issuer market capitalization is **strictly below US$100,000,000**, using verified dated FX for non-USD caps; exactly US$100m does not qualify. No local-currency ceiling is substituted.
+3. Whole-issuer market capitalization is **strictly below US$300,000,000**, using verified dated FX for non-USD caps; exactly US$300m does not qualify. No local-currency ceiling is substituted.
 4. Cash and short-term investments on the latest available completed annual/interim balance sheet **strictly exceed total debt**.
 
 Exactly 10% and exactly 30% qualify. Net cash of exactly zero does not. No FCF, equity, valuation-ranking, country or sector gate is added. Missing USD-conversion FX remains unresolved even when cap and revenue share a non-USD currency. Invalid/missing evidence is unresolved, not zero. Fresh provider global directory is used without top-N truncation; coverage is not a guarantee of every issuer worldwide.
@@ -15,7 +15,7 @@ The combined cash field is used once, otherwise both explicit components are req
 
 Quote cap is refreshed before use and separately reconciled against current outstanding shares, not float shares. Price units and cap currency are distinct. Provider-internal reconciliation within 1% does not constitute an independent issuer audit. Unverified ADR ratios or indicated multiple-share-class scope are unresolved. There are no ownership/holder endpoints or filters.
 
-Criteria update deployed to main on 31 October 2026 (PR #62): adds the strict USD cap; prior completed outputs retain their original criteria and are not rewritten.
+The 31 October 2026 update (PR #62) introduced a strict US$100m cap. The 14 November 2026 criteria update raises that exclusive limit to US$300m; prior completed outputs retain their original origin-commit criteria and are not rewritten or rerun. All other entry gates remain unchanged.
 
 ## Publication and ranking
 

@@ -1,6 +1,6 @@
 """Exact entry arithmetic for the revenue-multiple / margin / net-cash screen.
 
-Four investment gates: cap < USD 100m, cap <= 10% of positive FY revenue, FY GM >=30%,
+Four investment gates: cap < USD 300m, cap <= 10% of positive FY revenue, FY GM >=30%,
 and cash plus short-term investments > total debt. Selection of the newest
 available statements, quote/FX freshness and issuer evidence acquisition belong
 to the provider. No FCF or equity gate is imposed.
@@ -13,7 +13,7 @@ from .book_margin_calculations import (
     _result, _SUBUNITS, _sum, annual_margin,
 )
 
-MARKET_CAP_LIMIT_USD = Decimal("100000000")
+MARKET_CAP_LIMIT_USD = Decimal("300000000")
 MAX_CAP_TO_REVENUE = Decimal("0.10")
 MIN_GROSS_MARGIN = Decimal("0.30")
 
@@ -92,7 +92,7 @@ def assess_revenue(profile, income, fx_rates):
                   < _product(MARKET_CAP_LIMIT_USD, usd["denominator_rate"]))
     result["market_cap_limit_passes"] = cap_passes
     if not cap_passes:
-        result["reasons"].append("market_cap_at_or_above_usd_100000000")
+        result["reasons"].append("market_cap_at_or_above_usd_300000000")
     multiple_passes = (_product(cap["market_cap"], conversion["numerator_rate"])
                        <= _product(MAX_CAP_TO_REVENUE, margin["revenue"],
                                    conversion["denominator_rate"]))

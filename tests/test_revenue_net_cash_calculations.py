@@ -57,9 +57,9 @@ class RevenueTests(unittest.TestCase):
         self.assertTrue(assess_revenue(p, income(revenue='100000000', grossProfit='30000000', operatingIncome=-1), {})['passes'])
 
     def test_strict_usd_cap_boundary(self):
-        i = income(revenue='2000000000', grossProfit='600000000')
-        for cap, expected in [('99999999.999999999999999999', True),
-                              ('100000000', False), ('100000000.000000000001', False)]:
+        i = income(revenue='4000000000', grossProfit='1200000000')
+        for cap, expected in [('100000000', True), ('200000000', True), ('299999999.999999999999999999', True),
+                              ('300000000', False), ('300000000.000000000001', False)]:
             with self.subTest(cap=cap), localcontext() as context:
                 context.prec = 3
                 r = assess_revenue(profile(cap), i, {})
@@ -68,9 +68,9 @@ class RevenueTests(unittest.TestCase):
 
     def test_usd_cap_uses_cross_product_not_local_currency_ceiling(self):
         rates = {'EUR': fx('1', 'EUR'), 'USD': fx('.8', 'USD')}
-        i = income(reportedCurrency='EUR', revenue='2000000000', grossProfit='600000000')
-        for cap, expected in [('79999999.999999999999', True), ('80000000', False),
-                              ('80000000.000000001', False)]:
+        i = income(reportedCurrency='EUR', revenue='4000000000', grossProfit='1200000000')
+        for cap, expected in [('239999999.999999999999', True), ('240000000', False),
+                              ('240000000.000000001', False)]:
             r = assess_revenue(profile(cap, 'EUR'), i, rates)
             self.assertEqual(r['passes'], expected)
             self.assertEqual(r['cap_to_usd_fx_as_of'], {k: v['as_of'] for k, v in rates.items()})

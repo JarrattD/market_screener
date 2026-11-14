@@ -142,14 +142,14 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any('cashflow' in name for name, _ in c.calls))
 
     async def test_usd_ceiling_rejects_before_balance_request(self):
-        for cap, expected in [('99999999.99', 1), ('100000000', 0), ('100000001', 0)]:
+        for cap, expected in [('100000000', 1), ('200000000', 1), ('299999999.99', 1), ('300000000', 0), ('300000001', 0)]:
             c = FixtureClient()
             c.profiles['ONE']['cap_amount'] = cap
-            c.incomes['ONE'].latest.update(revenue='2000000000', grossProfit='600000000')
+            c.incomes['ONE'].latest.update(revenue='4000000000', grossProfit='1200000000')
             args = await self.assess(c)
             self.assertEqual(args[4]['matched_rows'], expected)
             self.assertEqual(dict(c.calls)['balance'], ['ONE'] if expected else [])
-            self.assertEqual(args[5]['market_cap_usd_max_exclusive'], '100000000')
+            self.assertEqual(args[5]['market_cap_usd_max_exclusive'], '300000000')
 
     async def test_same_non_usd_currency_requests_usd_fx_and_missing_is_unresolved(self):
         c = FixtureClient()
