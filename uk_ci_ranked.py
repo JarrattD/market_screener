@@ -9,13 +9,14 @@ import logging
 from pathlib import Path
 import sys
 
-from screenerV3.negative_ev_provider import FMPClient
-from screenerV3.uk_ci_fmp import fetch_financials, fetch_listing_profiles
+from screenerV3.negative_ev_provider import FMPClient, FMPError
+from screenerV3.uk_ci_fmp import fetch_financials
+from screenerV3.uk_ci_fmp_universe import fetch_fmp_universe
 from screenerV3.uk_ci_output import RATIO_KEYS, open_destination, publish, verify_destination, read_ownership
 from screenerV3.uk_ci_score import score_company
-from uk_ci_universe import OfficialSourceError, classify_hq, load_hq_overrides, load_universe
+from uk_ci_universe import classify_hq, load_hq_overrides
 
-MARKETS = ("Main Market", "AIM", "Aquis")
+MARKETS = ("LSE (segment not supplied)", "Main Market", "AIM", "Aquis")
 OVERRIDES = Path(__file__).parent / "data" / "uk_ci_hq_overrides.json"
 
 
@@ -25,7 +26,7 @@ def _note_list(raw):
     return [str(item) for item in (raw or ())]
 
 
-def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None):
+def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None, universe_stats=None):
     """Build stable, numeric rankings and keep unresolved HQs separately visible."""
     ownership = ownership or {}
     ranked, review = [], []
@@ -34,16 +35,17 @@ def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None)
     score_counts = Counter()
     usable_financial = ownership_missing = matched = 0
     for item in listings:
-        profile = profiles.get(item.isin) or {}
+        key = getattr(item, "issuer_key", item.isin)
+        profile = profiles.get(key) or {}
         matched += bool(profile)
-        hq = decisions[item.isin]
+        hq = decisions[key]
         counts = by_market.setdefault(item.market, Counter())
         counts[hq.status] += 1
         if getattr(item, "as_of", ""):
             snapshots.setdefault(item.market, set()).add(item.as_of)
         if hq.status == "out_of_scope":
             continue
-        inputs = financials.get(item.isin) or {}
+        inputs = financials.get(key) or {}
         symbol = inputs.get("symbol") or profile.get("symbol") or ""
         if hq.status == "review":
             review.append((item.ticker, item.company, item.market, item.isin, item.kind,
@@ -69,6 +71,8 @@ def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None)
         result_score = assessed["score"] if has_score else None
         score_counts[result_score] += 1
         notes = _note_list(inputs.get("notes") or inputs.get("issues"))
+        if profile.get("uk_screen_multiple_isins"):
+            notes.insert(0, "FMP lists multiple share classes; check total issuer market cap.")
         if owned:
             notes.insert(0, f"Largest holder: {owned['holder']} {owned['pct']}% "
                            f"({owned['as_of']}); {owned['source']}")
@@ -109,7 +113,8 @@ def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None)
         bands.append(fills)
     coverage = [
         ("Last completed run (UTC)", ran_at),
-        ("Official issuer universe", len(listings)),
+        ("FMP issuer universe", len(listings)),
+        *[(str(k), v) for k, v in (universe_stats or {}).items() if type(v) is int],
         ("FMP profiles matched", matched),
         ("In-scope head office", len(ranked_rows)),
         ("HQ needs review", len(review)),
@@ -119,12 +124,14 @@ def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None)
         ("Not scored", score_counts[None]),
         *[(f"Score {score}/7", score_counts[score]) for score in range(7, -1, -1)],
         *[(f"{market} | {label}", by_market[market][state])
-          for market in MARKETS
+          for market in by_market
           for state, label in (("in_scope", "in scope"), ("review", "HQ review"),
                                ("out_of_scope", "out of scope"))],
-        *[(f"{market} | listing source date", ", ".join(sorted(snapshots[market]))) for market in MARKETS],
+        *[(f"{market} | listing source date", ", ".join(sorted(snapshots[market])))
+          for market in snapshots if snapshots[market]],
         ("HQ criterion", "Real group headquarters in UK, Jersey or Guernsey; not just registered office."),
-        ("Listing criterion", "LSE Main Market, AIM or Aquis equity. Funds and REITs included; ETFs and debt excluded."),
+        ("Listing criterion", "UK equity listings marked active by FMP; London includes Main and AIM where FMP does not distinguish them. Includes identifiable funds and REITs; excludes identifiable ETFs and debt."),
+        ("Coverage limitation", "FMP is not an official exchange roster. Missing, inactive or unidentifiable listings, especially Aquis, may not appear."),
         ("Score", "Six financial ratio points plus verified ownership. Missing ownership gets no point."),
         ("Ownership Evidence", "Private reviewed evidence; supply current largest beneficial holder, not a nominee."),
         ("Fast flow", "Rank matched usable data provisionally; warnings stay visible for deeper research."),
@@ -135,20 +142,20 @@ def make_rows(listings, profiles, decisions, financials, ran_at, ownership=None)
 
 
 async def build(ownership=None):
-    listings = await asyncio.to_thread(load_universe)
-    if not listings:
-        raise RuntimeError("No official listings; prior workbook left alone")
     overrides = load_hq_overrides(OVERRIDES)
     async with FMPClient() as client:
-        profiles = await fetch_listing_profiles(client, listings)
-        if sum(bool(p) for p in profiles.values()) < len(listings) * .5:
-            raise RuntimeError("FMP profile coverage fell below 50%; prior workbook left alone")
-        decisions = {row.isin: classify_hq(row, profiles.get(row.isin), overrides) for row in listings}
-        in_scope = {row.isin: profiles[row.isin] for row in listings
-                    if decisions[row.isin].status == "in_scope" and profiles.get(row.isin)}
+        print("Loading UK listing coverage from FMP.", flush=True)
+        listings, profiles = await fetch_fmp_universe(client)
+        if not listings or len(profiles) < len(listings) * .5:
+            raise RuntimeError("FMP listing/profile coverage too low; no results published")
+        decisions = {row.issuer_key: classify_hq(row, profiles.get(row.issuer_key), overrides) for row in listings}
+        in_scope = {row.issuer_key: profiles[row.issuer_key] for row in listings
+                    if decisions[row.issuer_key].status == "in_scope" and profiles.get(row.issuer_key)}
+        print("Loading financial data from FMP.", flush=True)
         financials = await fetch_financials(client, in_scope)
     return make_rows(listings, profiles, decisions, financials,
-                     datetime.now(timezone.utc).isoformat(timespec="seconds"), ownership)
+                     datetime.now(timezone.utc).isoformat(timespec="seconds"), ownership,
+                     getattr(client, "uk_universe_stats", {}))
 
 
 def main(argv=None):
@@ -170,9 +177,10 @@ def main(argv=None):
             publish(sheet, ranked, review, coverage, bands)
         print("Dry run completed." if args.dry_run else "Private ranking and coverage verified.")
         return 0
-    except OfficialSourceError as exc:
-        # This exception includes only a fixed source label and a safe failure category.
-        print(f"UK & CI screen stopped: {exc}. No results published.", file=sys.stderr)
+    except FMPError as exc:
+        status = exc.status if type(exc.status) is int and 400 <= exc.status < 600 else None
+        detail = f" (HTTP {status})" if status is not None else ""
+        print(f"UK & CI screen stopped: FMP data unavailable{detail}. No results published.", file=sys.stderr)
         return 1
     except Exception as exc:
         # FMP/GSpread errors may include credentials, symbols, or Sheet metadata.
