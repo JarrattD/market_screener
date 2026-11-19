@@ -1,11 +1,25 @@
 from types import SimpleNamespace as NS
 from unittest import TestCase
+from unittest.mock import patch
 
-from uk_ci_ranked import make_rows
-from uk_ci_universe import HQDecision
+from uk_ci_ranked import main, make_rows
+from uk_ci_universe import HQDecision, OfficialSourceError
 
 
 class RankingTests(TestCase):
+    def test_source_failure_names_the_exchange_without_publishing(self):
+        with (patch("uk_ci_ranked.open_destination"),
+              patch("uk_ci_ranked.verify_destination"),
+              patch("uk_ci_ranked.read_ownership", return_value={}),
+              patch("uk_ci_ranked.load_universe",
+                    side_effect=OfficialSourceError("Aquis Companies directory", 403)),
+              patch("uk_ci_ranked.publish") as publish,
+              patch("sys.stderr") as stderr):
+            self.assertEqual(main([]), 1)
+        publish.assert_not_called()
+        stderr.write.assert_any_call(
+            "UK & CI screen stopped: Aquis Companies directory: HTTP 403. No results published.")
+
     def test_seven_at_top_incomplete_kept_hq_pending_visible(self):
         def item(symbol, kind="Company"):
             return NS(isin=symbol, ticker=symbol, company=symbol, market="Main Market",
