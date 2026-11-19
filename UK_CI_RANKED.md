@@ -12,17 +12,18 @@ titled **UK & Channel Islands Ranked**. The workbook template must have **Ranked
 corresponding A1 cells and `Template | uk-ci-ranked-v1` in Coverage A2:B2.
 No spreadsheet locator, results or security-level logs are published to GitHub.
 
-- **Listings:** official London Stock Exchange Main Market and AIM equity
-  instrument lists, plus the official Aquis issuer list. One row per issuer
-  across venues/share classes; includes listed closed-end funds and REITs,
-  not debt/ETFs; no market-cap floor or ceiling. The LSE source is a month-end
-  snapshot, with its date in Coverage; Aquis uses its current roster feed.
+- **Listings:** FMP only. Includes its UK equity listings, identifiable
+  listed closed-end funds and REITs; excludes identifiable debt and ETFs.
+  No market-cap floor or ceiling. FMP generally groups Main Market and AIM
+  under LSE, so the screen does not guess the segment. Aquis is included
+  where FMP identifies coverage; the separate Aquis directory is not queried.
+  Coverage is provider coverage, not an exhaustive exchange roster.
 - **Group headquarters** can be anywhere in the United Kingdom, Jersey or
   Guernsey. Foreign operations, customers or incorporation do not disqualify
   it. FMP profile evidence is provisional; ambiguous locations and absent
   profiles remain in **HQ Review**, never inferred from an ISIN prefix.
   The small static override file accepts sourced exceptional decisions.
-- **Fast scoring:** one pass with FMP bulk profile matching, batched quotes,
+- **Fast scoring:** one pass with FMP profile matching, batched quotes,
   bounded concurrent inputs and reuse of FX; six standard financial checks
   with a seventh point for supported ownership. Financial warnings belong
   in Notes, not in a hard filter. Unusable, incompatible or missing inputs
