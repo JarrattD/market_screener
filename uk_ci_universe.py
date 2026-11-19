@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from typing import Mapping
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -95,19 +98,66 @@ class _RawResponse:
         return json.loads(self.content)
 
 
-def _request(session, url):
+class OfficialSourceError(RuntimeError):
+    """Public-safe diagnostic: no exception body, URL, cookies or query parameters."""
+
+    def __init__(self, source, status=None):
+        self.source = source
+        self.status = status
+        detail = f"HTTP {status}" if status is not None else "network connection failed"
+        super().__init__(f"{source}: {detail}")
+
+
+_TRANSIENT_HTTP = {408, 429, 500, 502, 503, 504}
+
+
+def _retry_delay(headers, attempt):
+    delay = (1, 3)[attempt]
+    raw = headers.get("Retry-After") if headers is not None else None
+    if raw:
+        try:
+            delay = max(delay, int(raw))
+        except ValueError:
+            try:
+                until = parsedate_to_datetime(raw)
+                if until.tzinfo is None:
+                    until = until.replace(tzinfo=timezone.utc)
+                delay = max(delay, (until - datetime.now(timezone.utc)).total_seconds())
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return delay
+
+
+def _request(session, url, source):
     headers = {"User-Agent": "Mozilla/5.0 (compatible; equity-universe/1.0)",
                "Cache-Control": "no-cache"}
-    if session is not None:
-        response = session.get(url, timeout=(12, 65), headers=headers)
-        response.raise_for_status()
-        return response
-    with urlopen(Request(url, headers=headers), timeout=65) as response:
-        return _RawResponse(response.read())
+    for attempt in range(3):
+        status, retry_headers = None, None
+        try:
+            if session is not None:
+                response = session.get(url, timeout=(12, 65), headers=headers)
+                status = response.status_code
+                if 200 <= status < 300:
+                    return response
+                retry_headers = response.headers
+            else:
+                with urlopen(Request(url, headers=headers), timeout=65) as response:
+                    return _RawResponse(response.read())
+        except HTTPError as exc:
+            status, retry_headers = exc.code, exc.headers
+            exc.close()
+        except (URLError, TimeoutError, ConnectionError):
+            pass
+        if attempt == 2 or (status is not None and status not in _TRANSIENT_HTTP):
+            raise OfficialSourceError(source, status) from None
+        delay = _retry_delay(retry_headers, attempt)
+        if delay > 15:
+            raise OfficialSourceError(source, status) from None
+        time.sleep(delay)
 
 
-def _xlsx_urls(session, metadata_url, keys):
-    records = _request(session, metadata_url).json()["Data"]
+def _xlsx_urls(session, metadata_url, keys, source):
+    records = _request(session, metadata_url, source).json()["Data"]
     result = {}
     for key, prefix in keys.items():
         matches = [row for row in records if row["fileName"].casefold().startswith(prefix)
@@ -291,15 +341,17 @@ def _deduplicate(rows):
 def load_universe(session=None, today=None) -> list[Listing]:
     """Load and validate the public official universe; no HQ or FMP filter applied."""
     today = today or date.today()
-    instrument_url = _xlsx_urls(session, LSE_INSTRUMENTS, {"instruments": "instrument list"})["instruments"]
+    instrument_url = _xlsx_urls(session, LSE_INSTRUMENTS, {"instruments": "instrument list"},
+                                  "LSE instrument metadata")["instruments"]
     fund_urls = _xlsx_urls(session, LSE_FUNDS,
-                           {"funds": "listed investment funds list", "reit": "reits list"})
-    equity = _workbook_rows(_request(session, instrument_url).content, "1.0 All Equity")
+                           {"funds": "listed investment funds list", "reit": "reits list"},
+                           "LSE fund and REIT metadata")
+    equity = _workbook_rows(_request(session, instrument_url, "LSE instrument workbook").content, "1.0 All Equity")
     snapshot = _lse_report_date(equity)
     _check_date("LSE instruments", snapshot, today, 55)
     flags = {}
     for kind, sheet in (("funds", "Listed Investment Funds List"), ("reit", "REITs")):
-        rows = _workbook_rows(_request(session, fund_urls[kind]).content, sheet)
+        rows = _workbook_rows(_request(session, fund_urls[kind], f"LSE {kind} workbook").content, sheet)
         flag_date = _lse_report_date(rows)
         _check_date(f"LSE {kind}", flag_date, today, 55)
         if abs((flag_date - snapshot).days) > 32:
@@ -308,7 +360,7 @@ def load_universe(session=None, today=None) -> list[Listing]:
     if len(flags["funds"]) < 150 or len(flags["reit"]) < 15:
         raise ValueError("Unexpectedly low LSE funds or REIT coverage")
     lse = _lse_list(equity, instrument_url, flags["funds"], flags["reit"], snapshot.isoformat())
-    aq = _parse_aquis(_request(session, AQ_COMPANIES).text, today)
+    aq = _parse_aquis(_request(session, AQ_COMPANIES, "Aquis Companies directory").text, today)
     if sum(row.market == "Main Market" for row in lse) < 700 or \
             sum(row.market == "AIM" for row in lse) < 450 or len(aq) < 50:
         raise ValueError("Unexpectedly low Main Market, AIM or Aquis source coverage")
