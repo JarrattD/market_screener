@@ -13,7 +13,7 @@ from screenerV3.negative_ev_provider import FMPClient
 from screenerV3.uk_ci_fmp import fetch_financials, fetch_listing_profiles
 from screenerV3.uk_ci_output import RATIO_KEYS, open_destination, publish, verify_destination, read_ownership
 from screenerV3.uk_ci_score import score_company
-from uk_ci_universe import classify_hq, load_hq_overrides, load_universe
+from uk_ci_universe import OfficialSourceError, classify_hq, load_hq_overrides, load_universe
 
 MARKETS = ("Main Market", "AIM", "Aquis")
 OVERRIDES = Path(__file__).parent / "data" / "uk_ci_hq_overrides.json"
@@ -170,6 +170,10 @@ def main(argv=None):
             publish(sheet, ranked, review, coverage, bands)
         print("Dry run completed." if args.dry_run else "Private ranking and coverage verified.")
         return 0
+    except OfficialSourceError as exc:
+        # This exception includes only a fixed source label and a safe failure category.
+        print(f"UK & CI screen stopped: {exc}. No results published.", file=sys.stderr)
+        return 1
     except Exception as exc:
         # FMP/GSpread errors may include credentials, symbols, or Sheet metadata.
         print(f"UK & CI screen stopped ({type(exc).__name__}). Check the workflow setup and data sources.",
