@@ -2,15 +2,51 @@ import json
 import unittest
 from datetime import date
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError, URLError
 from tempfile import TemporaryDirectory
 
 from uk_ci_universe import (
-    Listing, _check_date, _deduplicate, _lse_list, _parse_aquis, classify_hq,
+    Listing, OfficialSourceError, _check_date, _deduplicate, _lse_list, _parse_aquis, _request, classify_hq,
     load_hq_overrides,
 )
 
 
 class UKCIUniverseTests(unittest.TestCase):
+    @patch("uk_ci_universe.time.sleep")
+    @patch("uk_ci_universe.urlopen")
+    def test_transient_http_and_timeout_are_retried(self, fetch, sleep):
+        ok = MagicMock()
+        ok.__enter__.return_value.read.return_value = b"ok"
+        fetch.side_effect = [
+            HTTPError("https://example.org?PRIVATE", 503, "PRIVATE", {"Retry-After": "2"}, None),
+            URLError(TimeoutError("PRIVATE")),
+            ok,
+        ]
+        self.assertEqual(_request(None, "https://example.org?PRIVATE", "Official listing").content, b"ok")
+        self.assertEqual(fetch.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 3])
+
+    @patch("uk_ci_universe.time.sleep")
+    @patch("uk_ci_universe.urlopen")
+    def test_forbidden_is_not_retried_and_details_are_sanitized(self, fetch, sleep):
+        fetch.side_effect = HTTPError("https://example.org?PRIVATE", 403, "PRIVATE", {}, None)
+        with self.assertRaises(OfficialSourceError) as ctx:
+            _request(None, "https://example.org?PRIVATE", "Aquis Companies directory")
+        self.assertEqual(str(ctx.exception), "Aquis Companies directory: HTTP 403")
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertEqual(fetch.call_count, 1)
+        sleep.assert_not_called()
+
+    @patch("uk_ci_universe.time.sleep")
+    @patch("uk_ci_universe.urlopen")
+    def test_long_retry_after_does_not_retry_early(self, fetch, sleep):
+        fetch.side_effect = HTTPError("https://example.org", 429, "", {"Retry-After": "600"}, None)
+        with self.assertRaisesRegex(OfficialSourceError, "Official listing: HTTP 429"):
+            _request(None, "https://example.org", "Official listing")
+        self.assertEqual(fetch.call_count, 1)
+        sleep.assert_not_called()
+
     def test_official_lse_selection_excludes_etf_and_trade_only(self):
         headers = ("TIDM", "Issuer Name", "ISIN", "LSE Market", "MiFIR Identifier Code",
                    "FCA Listing Category", "Instrument Name", "Country of Incorporation")
